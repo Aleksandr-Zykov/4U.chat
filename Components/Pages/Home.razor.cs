@@ -49,7 +49,6 @@ public partial class Home : ComponentBase, IDisposable
     private string modelSearchQuery = string.Empty;
     private bool showAllModels = false;
     private bool shouldHighlightCode = false;
-    private DateTime lastHighlightRequest = DateTime.MinValue;
     private bool isGeneratingChatName = false;
     private string animatingChatName = string.Empty;
     private bool isChatNameAnimating = false;
@@ -1780,14 +1779,6 @@ public partial class Home : ComponentBase, IDisposable
                     // Invalidate processed content cache
                     processedMessageContent.Remove(lastMessage.Id);
                     
-                    // Trigger syntax highlighting for new content (with throttling for streaming)
-                    var now = DateTime.UtcNow;
-                    if (now - lastHighlightRequest > TimeSpan.FromMilliseconds(250) || !isCurrentlyStreaming)
-                    {
-                        shouldHighlightCode = true;
-                        lastHighlightRequest = now;
-                    }
-                    
                     // Update UI
                     if (!isDisposed)
                     {
@@ -1801,9 +1792,8 @@ public partial class Home : ComponentBase, IDisposable
                 {
                     System.Diagnostics.Debug.WriteLine($"Forcing final UI update after streaming completion for chat {currentChat.Id}");
                     
-                    // Trigger final syntax highlighting when streaming completes (always, no throttling)
+                    // Trigger syntax highlighting when streaming completes
                     shouldHighlightCode = true;
-                    lastHighlightRequest = DateTime.UtcNow;
                     
                     if (!isDisposed)
                     {

@@ -99,12 +99,6 @@
         setTimeout(window.highlightCode, 100);
     };
 
-    // Immediate highlight function for streaming content
-    window.highlightCodeImmediate = () => {
-        // For streaming content, highlight immediately without delay
-        window.highlightCode();
-    };
-
     // Trigger highlighting when page loads
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
