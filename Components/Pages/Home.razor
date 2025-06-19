@@ -1,0 +1,2078 @@
+@page "/"
+@page "/chat/{chatId:int?}"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<script>
+    window.autoResizeTextarea = (element) => {
+        // Reset height to auto to measure content
+        element.style.height = 'auto';
+        
+        const minHeight = 80; // 80px minimum
+        const maxHeight = 160; // 160px maximum (2x)
+        const scrollHeight = element.scrollHeight;
+        
+        if (scrollHeight <= maxHeight) {
+            // Content fits within max height - expand and hide scrollbar
+            element.style.height = Math.max(minHeight, scrollHeight) + 'px';
+            element.classList.remove('at-max-height');
+        } else {
+            // Content exceeds max height - set to max and show scrollbar
+            element.style.height = maxHeight + 'px';
+            element.classList.add('at-max-height');
+        }
+    };
+
+    window.focusElementById = (elementId) => {
+        let attempts = 0;
+        const maxAttempts = 20; // Try for 2 seconds (20 * 100ms)
+        
+        const tryFocus = () => {
+            attempts++;
+            try {
+                const element = document.getElementById(elementId);
+                if (element) {
+                    element.focus();
+                    
+                    // Check if focus actually worked
+                    if (document.activeElement === element) {
+                        console.log('Successfully focused element:', elementId, 'after', attempts, 'attempts');
+                        return true; // Success
+                    } else {
+                        console.log('Focus attempt', attempts, '- element found but not focused. Active element:', document.activeElement?.id || 'none');
+                    }
+                } else {
+                    console.log('Focus attempt', attempts, '- element not found:', elementId);
+                }
+                
+                // Try again if we haven't reached max attempts
+                if (attempts < maxAttempts) {
+                    setTimeout(tryFocus, 100);
+                } else {
+                    console.error('Failed to focus element after', maxAttempts, 'attempts');
+                }
+                
+                return false; // Continue trying
+            } catch (error) {
+                console.error('Error focusing element:', error);
+                return false;
+            }
+        };
+        
+        // Start trying immediately
+        tryFocus();
+    };
+
+    window.handleMessageInputKeyDown = (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            // Prevent the new line from being inserted
+            event.preventDefault();
+            
+            // Find the send button and click it
+            const textarea = event.target;
+            if (textarea && textarea.value.trim()) {
+                // Find the send button (not the stop button) and trigger click
+                const sendButton = document.querySelector('.send-button:not(.stop-button)');
+                if (sendButton && !sendButton.disabled) {
+                    sendButton.click();
+                }
+            }
+        }
+    };
+
+    window.highlightCode = () => {
+        console.log('Attempting to highlight code...');
+        
+        if (typeof Prism === 'undefined') {
+            console.log('Prism.js not loaded yet');
+            return;
+        }
+
+        // Simple approach: highlight all code blocks
+        Prism.highlightAll();
+        console.log('Prism.highlightAll() executed');
+    };
+
+    // Simple auto-highlight function
+    window.autoHighlightCode = () => {
+        setTimeout(window.highlightCode, 100);
+    };
+
+    // Trigger highlighting when page loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(window.highlightCode, 1000);
+        });
+    } else {
+        setTimeout(window.highlightCode, 1000);
+    }
+
+    // Copy code to clipboard
+    window.copyCode = async (codeId) => {
+        try {
+            const codeElement = document.getElementById(`code-${codeId}`);
+            if (!codeElement) {
+                console.error('Code element not found:', codeId);
+                return;
+            }
+
+            const codeText = codeElement.textContent || codeElement.innerText;
+            
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(codeText);
+            } else {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = codeText;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                textArea.remove();
+            }
+
+            // Show visual feedback
+            const button = document.querySelector(`[onclick="copyCode('${codeId}')"]`);
+            if (button) {
+                const originalTitle = button.title;
+                let feedbackTimeout;
+                
+                // Clear any existing feedback
+                button.style.removeProperty('background');
+                button.style.removeProperty('border-color');
+                
+                button.title = 'Copied!';
+                button.style.setProperty('background', 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)', 'important');
+                button.style.setProperty('border-color', '#4CAF50', 'important');
+                
+                // Function to clear feedback
+                const clearFeedback = () => {
+                    button.title = originalTitle;
+                    button.style.removeProperty('background');
+                    button.style.removeProperty('border-color');
+                    if (feedbackTimeout) {
+                        clearTimeout(feedbackTimeout);
+                        feedbackTimeout = null;
+                    }
+                };
+                
+                // Clear feedback when mouse leaves
+                const onMouseLeave = () => {
+                    clearFeedback();
+                    button.removeEventListener('mouseleave', onMouseLeave);
+                };
+                
+                button.addEventListener('mouseleave', onMouseLeave);
+                
+                // Auto clear after 1.5 seconds
+                feedbackTimeout = setTimeout(() => {
+                    clearFeedback();
+                    button.removeEventListener('mouseleave', onMouseLeave);
+                }, 1500);
+            }
+        } catch (err) {
+            console.error('Failed to copy code:', err);
+        }
+    };
+
+    // Download code as file
+    window.downloadCode = (codeId, language) => {
+        try {
+            const codeElement = document.getElementById(`code-${codeId}`);
+            if (!codeElement) {
+                console.error('Code element not found:', codeId);
+                return;
+            }
+
+            const codeText = codeElement.textContent || codeElement.innerText;
+            const fileExtension = getFileExtension(language);
+            const fileName = `file.${fileExtension}`;
+            
+            const blob = new Blob([codeText], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = fileName;
+            
+            document.body.appendChild(a);
+            a.click();
+            
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            // Show visual feedback
+            const button = document.querySelector(`[onclick="downloadCode('${codeId}', '${language}')"]`);
+            if (button) {
+                const originalTitle = button.title;
+                let feedbackTimeout;
+                
+                // Clear any existing feedback
+                button.style.removeProperty('background');
+                button.style.removeProperty('border-color');
+                
+                button.title = 'Downloaded!';
+                button.style.setProperty('background', 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)', 'important');
+                button.style.setProperty('border-color', '#2196F3', 'important');
+                
+                // Function to clear feedback
+                const clearFeedback = () => {
+                    button.title = originalTitle;
+                    button.style.removeProperty('background');
+                    button.style.removeProperty('border-color');
+                    if (feedbackTimeout) {
+                        clearTimeout(feedbackTimeout);
+                        feedbackTimeout = null;
+                    }
+                };
+                
+                // Clear feedback when mouse leaves
+                const onMouseLeave = () => {
+                    clearFeedback();
+                    button.removeEventListener('mouseleave', onMouseLeave);
+                };
+                
+                button.addEventListener('mouseleave', onMouseLeave);
+                
+                // Auto clear after 1.5 seconds
+                feedbackTimeout = setTimeout(() => {
+                    clearFeedback();
+                    button.removeEventListener('mouseleave', onMouseLeave);
+                }, 1500);
+            }
+        } catch (err) {
+            console.error('Failed to download code:', err);
+        }
+    };
+
+    // Get file extension based on language
+    function getFileExtension(language) {
+        switch (language.toLowerCase()) {
+            case 'javascript':
+            case 'js':
+                return 'js';
+            case 'typescript':
+            case 'ts':
+                return 'ts';
+            case 'python':
+            case 'py':
+                return 'py';
+            case 'csharp':
+            case 'cs':
+            case 'c#':
+                return 'cs';
+            case 'java':
+                return 'java';
+            case 'cpp':
+            case 'c++':
+                return 'cpp';
+            case 'c':
+                return 'c';
+            case 'html':
+                return 'html';
+            case 'css':
+                return 'css';
+            case 'scss':
+            case 'sass':
+                return 'scss';
+            case 'json':
+                return 'json';
+            case 'xml':
+                return 'xml';
+            case 'yaml':
+            case 'yml':
+                return 'yml';
+            case 'markdown':
+            case 'md':
+                return 'md';
+            case 'bash':
+            case 'sh':
+                return 'sh';
+            case 'powershell':
+            case 'ps1':
+                return 'ps1';
+            case 'sql':
+                return 'sql';
+            case 'php':
+                return 'php';
+            case 'ruby':
+            case 'rb':
+                return 'rb';
+            case 'go':
+                return 'go';
+            case 'rust':
+            case 'rs':
+                return 'rs';
+            case 'kotlin':
+            case 'kt':
+                return 'kt';
+            case 'swift':
+                return 'swift';
+            case 'dart':
+                return 'dart';
+            case 'r':
+                return 'r';
+            case 'matlab':
+                return 'm';
+            case 'latex':
+            case 'tex':
+                return 'tex';
+            case 'dockerfile':
+                return 'dockerfile';
+            case 'vue':
+                return 'vue';
+            case 'jsx':
+                return 'jsx';
+            case 'tsx':
+                return 'tsx';
+            default:
+                return 'txt';
+        }
+    }
+
+    function animateChatName(newName) {
+        if (!newName) return;
+        
+        const elements = document.querySelectorAll('.chat-name-animating');
+        
+        elements.forEach(element => {
+            if (!element) return;
+            
+            element.innerHTML = '';
+            
+            for (let i = 0; i < newName.length; i++) {
+                const charSpan = document.createElement('span');
+                charSpan.className = 'char';
+                
+                // Handle spaces properly by using non-breaking space
+                if (newName[i] === ' ') {
+                    charSpan.innerHTML = '&nbsp;';
+                } else {
+                    charSpan.textContent = newName[i];
+                }
+                
+                charSpan.style.animationDelay = (i * 100) + 'ms';
+                element.appendChild(charSpan);
+            }
+        });
+    }
+
+    // Fast chat selection without Blazor re-render
+    window.setActiveChatItem = (chatId) => {
+        // Remove active class from all chat items
+        document.querySelectorAll('.chat-item.active').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Add active class to the selected chat item
+        if (chatId) {
+            const selectedItem = document.querySelector(`[data-chat-id="${chatId}"]`);
+            if (selectedItem) {
+                selectedItem.classList.add('active');
+            }
+        }
+    };
+
+    // Preserve and restore chat list scroll position
+    window.chatListScrollPosition = window.chatListScrollPosition || 0;
+    
+    window.preserveChatListScroll = () => {
+        const chatList = document.querySelector('.chat-list');
+        if (chatList) {
+            window.chatListScrollPosition = chatList.scrollTop;
+        }
+    };
+    
+    window.restoreChatListScroll = () => {
+        const chatList = document.querySelector('.chat-list');
+        if (chatList) {
+            chatList.scrollTop = window.chatListScrollPosition;
+        }
+    };
+
+    // Scroll to a specific message in the chat
+    window.scrollToMessage = (messageId) => {
+        if (!messageId) return;
+        
+        // Try multiple times as messages might still be rendering
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        const tryScroll = () => {
+            attempts++;
+            const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+            
+            if (messageElement) {
+                // Scroll the message into view with proper positioning
+                const messagesContainer = document.querySelector('.messages-container');
+                if (messagesContainer) {
+                    const messageTop = messageElement.offsetTop;
+                    const messageHeight = messageElement.offsetHeight;
+                    const containerHeight = messagesContainer.clientHeight;
+                    
+                    // Position the message so it starts at about 1.5% from top of container
+                    // This gives clean spacing and shows the full message
+                    const targetScrollTop = Math.max(0, messageTop - (containerHeight * 0.015));
+                    
+                    messagesContainer.scrollTo({
+                        top: targetScrollTop,
+                        behavior: 'smooth'
+                    });
+                    
+                    console.log('Scrolled to message:', messageId, 'at position:', targetScrollTop);
+                    return true;
+                }
+            }
+            
+            // Try again if not found and haven't reached max attempts
+            if (attempts < maxAttempts) {
+                setTimeout(tryScroll, 100);
+            } else {
+                console.log('Failed to find message after', maxAttempts, 'attempts:', messageId);
+            }
+            
+            return false;
+        };
+        
+        // Start trying immediately
+        tryScroll();
+    };
+
+    // Copy message to clipboard
+    window.copyMessage = async (messageText) => {
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(messageText);
+            } else {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = messageText;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                textArea.remove();
+            }
+
+            // Find the hovered copy button and toggle icons
+            const copyButtons = document.querySelectorAll('.copy-btn');
+            copyButtons.forEach(button => {
+                if (button.matches(':hover')) {
+                    const copyIcon = button.querySelector('.copy-icon');
+                    const checkIcon = button.querySelector('.check-icon');
+                    const originalTitle = button.title;
+                    
+                    if (copyIcon && checkIcon) {
+                        // Show checkmark, hide copy icon
+                        copyIcon.style.transform = 'translate(-50%, -50%) scale(0)';
+                        copyIcon.style.opacity = '0';
+                        checkIcon.style.transform = 'translate(-50%, -50%) scale(1)';
+                        checkIcon.style.opacity = '1';
+                        
+                        // Update button styling
+                        button.title = 'Copied!';
+                        button.style.setProperty('background', 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)', 'important');
+                        button.style.setProperty('border-color', '#4CAF50', 'important');
+                        button.style.setProperty('color', 'white', 'important');
+                        
+                        // Reset after delay
+                        setTimeout(() => {
+                            copyIcon.style.transform = 'translate(-50%, -50%) scale(1)';
+                            copyIcon.style.opacity = '1';
+                            checkIcon.style.transform = 'translate(-50%, -50%) scale(0)';
+                            checkIcon.style.opacity = '0';
+                            button.title = originalTitle;
+                            button.style.removeProperty('background');
+                            button.style.removeProperty('border-color');
+                            button.style.removeProperty('color');
+                        }, 2000);
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('Failed to copy message:', err);
+        }
+    };
+
+    // File upload helper
+    window.triggerFileInput = function() {
+        console.log('triggerFileInput called');
+        const fileInput = document.getElementById('file-input');
+        console.log('fileInput element:', fileInput);
+        if (fileInput) {
+            console.log('Clicking file input');
+            fileInput.click();
+        } else {
+            console.error('File input element not found');
+        }
+    };
+
+    // Simple error message display
+    window.displayErrorMessage = function(message) {
+        alert(message);
+    };
+
+    // Citation functionality - use window properties to avoid redeclaration
+    window.citationFeature = window.citationFeature || {
+        button: null,
+        selectedText: '',
+        isInitialized: false,
+        eventListenersAdded: false
+    };
+    
+    // Function to set up Blazor handler properly
+    window.setBlazorCitationHandler = function(dotNetReference) {
+        console.log('Setting Blazor citation handler...');
+        console.log('DotNet reference type:', typeof dotNetReference);
+        console.log('DotNet reference:', dotNetReference);
+        
+        if (dotNetReference) {
+            window.blazorCitationHandler = dotNetReference;
+            console.log('✅ Blazor handler set successfully');
+            console.log('Handler methods:', Object.getOwnPropertyNames(dotNetReference));
+            console.log('Has invokeMethodAsync:', typeof dotNetReference.invokeMethodAsync === 'function');
+            return true;
+        } else {
+            console.error('❌ Invalid DotNet reference provided');
+            return false;
+        }
+    };
+    
+    window.initializeCitationFeature = function() {
+        console.log('Initializing citation feature...');
+        
+        if (window.citationFeature.isInitialized) {
+            console.log('Citation feature already initialized');
+            return;
+        }
+        
+        try {
+            // Remove existing button if any
+            if (window.citationFeature.button) {
+                window.citationFeature.button.remove();
+            }
+            
+            // Create citation button
+            window.citationFeature.button = document.createElement('button');
+            window.citationFeature.button.className = 'citation-button';
+            window.citationFeature.button.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1-.008-1-1.031"/>
+                    <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1-1 2-2 2s-1-.008-1-1.031"/>
+                </svg>
+                <span>Quote</span>
+            `;
+            window.citationFeature.button.style.display = 'none';
+            window.citationFeature.button.style.position = 'fixed';
+            window.citationFeature.button.style.zIndex = '10000';
+            window.citationFeature.button.title = 'Quote selected text';
+            document.body.appendChild(window.citationFeature.button);
+            
+            console.log('Citation button created and added to body');
+            
+            // Add event listeners only once
+            if (!window.citationFeature.eventListenersAdded) {
+                // Handle selection change with more frequent checking
+                document.addEventListener('mouseup', function() {
+                    setTimeout(window.checkSelection, 10);
+                });
+                
+                document.addEventListener('keyup', function() {
+                    setTimeout(window.checkSelection, 10);
+                });
+                
+                // Hide button when clicking elsewhere
+                document.addEventListener('click', function(e) {
+                    if (window.citationFeature.button && !window.citationFeature.button.contains(e.target)) {
+                        window.hideCitationButton();
+                    }
+                });
+                
+                window.citationFeature.eventListenersAdded = true;
+                console.log('Event listeners added');
+            }
+            
+            // Handle citation button click
+            window.citationFeature.button.addEventListener('click', function(e) {
+                console.log('Citation button clicked');
+                e.preventDefault();
+                e.stopPropagation();
+                window.handleCitationClick();
+            });
+            
+            window.citationFeature.isInitialized = true;
+            console.log('Citation feature initialized successfully');
+            
+        } catch (error) {
+            console.error('Error initializing citation feature:', error);
+        }
+    };
+    
+    window.checkSelection = function() {
+        try {
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+            
+            console.log('Checking selection, text length:', text.length);
+            
+            if (text.length > 0) {
+                console.log('Selected text:', text);
+                
+                // Check if selection is within a message
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    let element = range.commonAncestorContainer;
+                    
+                    // If it's a text node, get the parent element
+                    if (element.nodeType === Node.TEXT_NODE) {
+                        element = element.parentElement;
+                    }
+                    
+                    // Look for message containers
+                    const messageElement = element.closest('.message-text, .thinking-text, .message-content');
+                    
+                    console.log('Message element found:', !!messageElement);
+                    
+                    if (messageElement) {
+                        window.citationFeature.selectedText = text;
+                        window.showCitationButton(selection);
+                        return;
+                    }
+                }
+            }
+            
+            window.hideCitationButton();
+        } catch (error) {
+            console.error('Error checking selection:', error);
+        }
+    }
+    
+    window.showCitationButton = function(selection) {
+        try {
+            if (!window.citationFeature.button || !selection.rangeCount) {
+                console.log('Cannot show citation button - missing button or selection');
+                return;
+            }
+            
+            const range = selection.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            
+            console.log('Selection rect:', rect);
+            
+            // Position button near the selection
+            const left = Math.max(10, rect.left + (rect.width / 2) - 50);
+            const top = Math.max(10, rect.top - 50);
+            
+            window.citationFeature.button.style.left = `${left}px`;
+            window.citationFeature.button.style.top = `${top}px`;
+            window.citationFeature.button.style.display = 'flex';
+            
+            console.log('Citation button shown at:', left, top);
+            
+        } catch (error) {
+            console.error('Error showing citation button:', error);
+        }
+    }
+    
+    window.hideCitationButton = function() {
+        if (window.citationFeature.button) {
+            window.citationFeature.button.style.display = 'none';
+            console.log('Citation button hidden');
+        }
+        window.citationFeature.selectedText = '';
+    }
+    
+    window.handleCitationClick = function() {
+        try {
+            console.log('Handling citation click with text:', window.citationFeature.selectedText);
+            console.log('Blazor handler available:', !!window.blazorCitationHandler);
+            console.log('Blazor handler type:', typeof window.blazorCitationHandler);
+            
+            if (window.blazorCitationHandler) {
+                console.log('Blazor handler methods:', Object.getOwnPropertyNames(window.blazorCitationHandler));
+                console.log('Has invokeMethodAsync:', typeof window.blazorCitationHandler.invokeMethodAsync);
+            }
+            
+            if (window.citationFeature.selectedText && window.blazorCitationHandler) {
+                console.log('Calling Blazor method...');
+                try {
+                    window.blazorCitationHandler.invokeMethodAsync('InsertCitationFromJS', window.citationFeature.selectedText)
+                        .then(() => {
+                            console.log('Blazor method call completed successfully');
+                        })
+                        .catch((error) => {
+                            console.error('Blazor method call failed:', error);
+                        });
+                } catch (callError) {
+                    console.error('Error calling Blazor method:', callError);
+                }
+                window.hideCitationButton();
+                window.getSelection().removeAllRanges();
+            } else {
+                console.error('Missing selected text or blazor handler');
+                console.error('Selected text:', window.citationFeature.selectedText);
+                console.error('Handler exists:', !!window.blazorCitationHandler);
+            }
+        } catch (error) {
+            console.error('Error handling citation click:', error);
+        }
+    }
+    
+    // Test function to verify citation button works
+    window.testCitationButton = function() {
+        console.log('Testing citation button...');
+        if (!window.citationFeature.button) {
+            console.error('Citation button not found!');
+            return;
+        }
+        
+        // Show button at center of screen for testing
+        window.citationFeature.button.style.left = '50%';
+        window.citationFeature.button.style.top = '50%';
+        window.citationFeature.button.style.transform = 'translate(-50%, -50%)';
+        window.citationFeature.button.style.display = 'flex';
+        window.citationFeature.selectedText = 'Test citation text';
+        
+        console.log('Citation button should now be visible in center of screen');
+    }
+    
+    // Reset function for debugging
+    window.resetCitationFeature = function() {
+        console.log('Resetting citation feature...');
+        window.citationFeature.isInitialized = false;
+        window.citationFeature.eventListenersAdded = false;
+        if (window.citationFeature.button) {
+            window.citationFeature.button.remove();
+            window.citationFeature.button = null;
+        }
+        
+        // Try to find a Blazor handler automatically
+        if (!window.blazorCitationHandler) {
+            console.log('🔍 Trying to auto-detect Blazor handler...');
+            const dotNetObjects = window.findBlazorHandlers();
+            
+            // Look for an object that has InsertCitationFromJS method
+            for (const { key, obj } of dotNetObjects) {
+                try {
+                    // Test if this object has our method
+                    if (obj && typeof obj.invokeMethodAsync === 'function') {
+                        console.log(`Testing ${key} for InsertCitationFromJS method...`);
+                        window.blazorCitationHandler = obj;
+                        console.log(`✅ Set ${key} as blazorCitationHandler for testing`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`❌ ${key} failed test:`, e.message);
+                }
+            }
+        }
+        
+        window.initializeCitationFeature();
+    }
+    
+    // Debug function to check current state
+    window.debugCitationFeature = function() {
+        console.log('=== Citation Feature Debug ===');
+        console.log('Citation feature object:', window.citationFeature);
+        console.log('Blazor handler:', window.blazorCitationHandler);
+        console.log('Handler type:', typeof window.blazorCitationHandler);
+        
+        if (window.blazorCitationHandler) {
+            console.log('Handler methods:', Object.getOwnPropertyNames(window.blazorCitationHandler));
+            console.log('Has invokeMethodAsync:', typeof window.blazorCitationHandler.invokeMethodAsync);
+        }
+        
+        if (window.citationFeature) {
+            console.log('Is initialized:', window.citationFeature.isInitialized);
+            console.log('Has button:', !!window.citationFeature.button);
+            console.log('Event listeners added:', window.citationFeature.eventListenersAdded);
+            console.log('Selected text:', window.citationFeature.selectedText);
+        }
+        
+        console.log('Init function exists:', typeof window.initializeCitationFeature);
+        console.log('================================');
+    }
+    
+    // Test Blazor handler directly
+    window.testBlazorHandler = function() {
+        console.log('Testing Blazor handler directly...');
+        if (window.blazorCitationHandler) {
+            try {
+                console.log('Calling InsertCitationFromJS with test text...');
+                window.blazorCitationHandler.invokeMethodAsync('InsertCitationFromJS', 'TEST CITATION TEXT')
+                    .then(() => {
+                        console.log('✅ Blazor handler test successful!');
+                    })
+                    .catch((error) => {
+                        console.error('❌ Blazor handler test failed:', error);
+                    });
+            } catch (error) {
+                console.error('❌ Error calling Blazor handler:', error);
+            }
+        } else {
+            console.error('❌ Blazor handler not found!');
+            console.log('Available window properties containing "blazor":', 
+                Object.keys(window).filter(key => key.toLowerCase().includes('blazor')));
+        }
+    }
+    
+    // Complete setup function for manual testing
+    window.forceSetupCitation = function() {
+        console.log('🔄 Force setting up citation feature...');
+        
+        // Reset first
+        if (window.citationFeature && window.citationFeature.button) {
+            window.citationFeature.button.remove();
+        }
+        window.citationFeature = {
+            button: null,
+            selectedText: '',
+            isInitialized: false,
+            eventListenersAdded: false
+        };
+        
+        // Initialize
+        window.initializeCitationFeature();
+        
+        // Check status
+        window.debugCitationFeature();
+        
+        console.log('Note: You still need to set the Blazor handler manually or reload the page');
+    }
+    
+    // Check for any DotNet objects in window
+    window.findBlazorHandlers = function() {
+        console.log('🔍 Searching for DotNet objects...');
+        const dotNetObjects = [];
+        
+        for (const key in window) {
+            try {
+                const obj = window[key];
+                if (obj && typeof obj === 'object' && obj.invokeMethodAsync) {
+                    console.log(`Found potential DotNet object: ${key}`, obj);
+                    dotNetObjects.push({ key, obj });
+                }
+            } catch (e) {
+                // Ignore inaccessible properties
+            }
+        }
+        
+        if (dotNetObjects.length === 0) {
+            console.log('❌ No DotNet objects found in window');
+        } else {
+            console.log(`✅ Found ${dotNetObjects.length} potential DotNet objects`);
+        }
+        
+        return dotNetObjects;
+    }
+</script>
+
+<PageTitle>4U.chat</PageTitle>
+
+<button class="theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
+    <svg class="sun-icon" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/>
+        <line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>
+    <svg class="moon-icon" viewBox="0 0 24 24">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+</button>
+
+<div class="app-container">
+    <div class="sidebar @(isSidebarCollapsed ? "collapsed" : "")">
+        <div class="sidebar-header">
+            <div class="logo" @onclick="async () => await GoToHome()">
+                <img src="/logo.svg" alt="4U.chat" class="logo-svg" />
+            </div>
+        </div>
+        
+        <button class="new-chat-btn" @onclick="CreateNewChat">
+            New Chat
+        </button>
+        
+        <div class="search-box">
+            <div class="search-icon search-icon-sidebar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path d="m21 21-4.35-4.35"/>
+                </svg>
+            </div>
+            <input type="text" class="search-input" placeholder="Search your threads..." value="@searchQuery" @oninput="OnSearchInput" />
+        </div>
+        
+        <div class="separator"></div>
+        
+        <div class="chat-list">
+            @if (!isInitializing)
+            {
+                @if (GroupedChats != null && GroupedChats.Any())
+            {
+                @foreach (var chatSection in GroupedChats)
+                {
+                    <div class="chat-section" @key="chatSection.Title">
+                        <div class="chat-section-header">
+                            @chatSection.Title
+                        </div>
+                        @foreach (var chat in chatSection.Chats)
+                        {
+                            <div class="chat-item" data-chat-id="@chat.Id" @onclick="() => SelectChat(chat.Id, shouldNavigate: true)" @key="chat.Id">
+                                <div class="chat-title">
+                                    @if (chat.IsBranched && chat.OriginalChatId.HasValue)
+                                    {
+                                        <svg class="branch-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
+                                             @onclick:stopPropagation="true" 
+                                             @onclick="() => SelectChat(chat.OriginalChatId.Value, shouldNavigate: true)"
+                                             title="Go to original chat">
+                                            <path d="M6.02,5.78m0,15.31V4.55m0,0v-1.91m0,3.14v-1.23m0,1.23c0,1.61,1.21,3.11,3.2,3.94l4.58,1.92c1.98,.83,3.2,2.32,3.2,3.94v3.84"></path>
+                                            <path d="M20.53,17.59l-3.41,3.66-3.66-3.41"></path>
+                                        </svg>
+                                    }
+                                    @if (isChatNameAnimating && chat.Id == currentChat?.Id && !string.IsNullOrEmpty(animatingChatName))
+                                    {
+                                        <span class="chat-name-animating" id="chat-name-@chat.Id">@animatingChatName</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="chat-name-static">@(chat.Title ?? "New Chat")</span>
+                                    }
+                                </div>
+                                @if (IsChatGenerating(chat.Id))
+                                {
+                                    <div class="chat-generating-indicator">
+                                        <svg class="generating-spinner" viewBox="0 0 24 24">
+                                            <circle cx="12" cy="12" r="10" fill="none" stroke-width="2" stroke-dasharray="60" stroke-dashoffset="20" />
+                                        </svg>
+                                    </div>
+                                }
+                                <div class="chat-actions">
+                                    <button class="chat-action-btn pin-btn" title="@(chat.IsPinned ? "Unpin Thread" : "Pin Thread")" @onclick:stopPropagation="true" @onclick="() => TogglePinChat(chat.Id)">
+                                        @if (chat.IsPinned)
+                                        {
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M12 17v5"/>
+                                                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 7.89 17H16.1a2 2 0 0 0 1.78-2.55l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 0-1-1H10a1 1 0 0 0-1 1z"/>
+                                                <line x1="2" y1="2" x2="22" y2="22"/>
+                                            </svg>
+                                        }
+                                        else
+                                        {
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M12 17v5"/>
+                                                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 7.89 17H16.1a2 2 0 0 0 1.78-2.55l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 0-1-1H10a1 1 0 0 0-1 1z"/>
+                                            </svg>
+                                        }
+                                    </button>
+                                    <button class="chat-action-btn delete-btn" title="Delete Thread" @onclick:stopPropagation="true" @onclick="() => DeleteChat(chat.Id)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M3 6h18"/>
+                                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                                            <line x1="10" y1="11" x2="10" y2="17"/>
+                                            <line x1="14" y1="11" x2="14" y2="17"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            }
+        </div>
+        
+        <div class="user-info" @onclick="GoToSettings" style="cursor: pointer;">
+            <div class="user-avatar-sidebar">
+                @if (!string.IsNullOrEmpty(currentUser?.ProfilePictureData))
+                {
+                    <img src="@currentUser.ProfilePictureData" alt="Profile Picture" class="avatar-img" />
+                }
+                else
+                {
+                    @(currentUser?.UserName?.Substring(0, 1).ToUpper())
+                }
+            </div>
+            <div class="user-details">
+                <div class="user-name">@(currentUser?.Name)</div>
+            </div>
+            <form method="post" action="/Auth/Logout" style="margin: 0;">
+                <button type="submit" style="background: none; border: none; color: #888888; cursor: pointer; font-size: 0.75rem;">
+                    Logout
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <button class="sidebar-toggle" @onclick="ToggleSidebar">
+            @if (isSidebarCollapsed)
+            {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9,18 15,12 9,6"/>
+                </svg>
+            }
+            else
+            {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15,18 9,12 15,6"/>
+                </svg>
+            }
+        </button>
+        
+        @if (CurrentChatId.HasValue && currentChat != null)
+        {
+            <div class="chat-header">
+                <h3>
+                    @if (isChatNameAnimating && currentChat != null && !string.IsNullOrEmpty(animatingChatName))
+                    {
+                        <span class="chat-name-animating" id="chat-header-name">@animatingChatName</span>
+                    }
+                    else if (currentChat != null)
+                    {
+                        <span class="chat-name-static">@(currentChat.Title ?? "New Chat")</span>
+                    }
+                </h3>
+            </div>
+            
+            <div class="chat-area">
+                <div class="messages-container">
+                    @if (messages != null)
+                    {
+                        @foreach (var message in messages)
+                        {
+                            @* Skip the currently streaming message to avoid duplication *@
+                            @if (!(IsCurrentChatGenerating && GetCurrentStreamingMessageId().HasValue && message.Id == GetCurrentStreamingMessageId().Value))
+                            {
+                                <div class="message @(message.Role == "user" ? "user-message" : "assistant-message") @(message.Role == "user" && editingMessageId == message.Id ? "editing" : "")" data-message-id="@message.Id">
+                                    <div class="message-content">
+                                        @if (message.Role == "user" && editingMessageId == message.Id)
+                                        {
+                                            <div class="message-edit-container">
+                                                <textarea class="message-edit-textarea" @bind="editingMessageContent" @bind:event="oninput"></textarea>
+                                                <div class="message-edit-actions">
+                                                    <button class="message-edit-btn save-btn" @onclick="() => SaveEditedMessage(message)" title="Save changes">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="M20 6 9 17l-5-5"></path>
+                                                        </svg>
+                                                    </button>
+                                                    <button class="message-edit-btn cancel-btn" @onclick="CancelEdit" title="Cancel editing">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="M18 6 6 18"></path>
+                                                            <path d="M6 6l12 12"></path>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            @* Show thinking section if reasoning is present *@
+                                            @if (message.Role == "assistant" && !string.IsNullOrEmpty(message.Reasoning))
+                                            {
+                                                <div class="thinking-section" id="thinking-@message.Id">
+                                                    <div class="thinking-header" @onclick="() => ToggleThinkingSection(message.Id)">
+                                                        <div class="thinking-title">
+                                                            <svg class="thinking-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <circle cx="12" cy="12" r="3"/>
+                                                                <path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/>
+                                                            </svg>
+                                                            <span>Thinking</span>
+                                                        </div>
+                                                        <svg class="thinking-chevron @(IsThinkingExpanded(message.Id) ? "expanded" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="6,9 12,15 18,9"></polyline>
+                                                        </svg>
+                                                    </div>
+                                                    <div class="thinking-content @(IsThinkingExpanded(message.Id) ? "expanded" : "")">
+                                                        <div class="thinking-text">@((MarkupString)MarkdownService.ToHtml(message.Reasoning))</div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            <!-- Show attachments if present -->
+                                            @if (message.HasAttachments)
+                                            {
+                                                <div class="message-attachments">
+                                                    @foreach (var attachment in message.Attachments)
+                                                    {
+                                                        <div class="message-attachment">
+                                                            <span class="attachment-icon">@((MarkupString)GetAttachmentIcon(attachment.Type))</span>
+                                                            <span class="attachment-name">@attachment.FileName</span>
+                                                            @if (attachment.Type == _4U.chat.Models.AttachmentType.Image)
+                                                            {
+                                                                <span class="attachment-type">Image</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="attachment-type">PDF</span>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            <div class="message-text">@((MarkupString)GetProcessedMessageContent(message))</div>
+                                        }
+                                    </div>
+                                    @if (message.Role == "user")
+                                    {
+                                        <div class="message-actions">
+                                            <button class="message-action-btn retry-btn" @onclick="() => RetryMessage(message)" title="Retry message">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-ccw" aria-hidden="true">
+                                                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                                    <path d="M3 3v5h5"></path>
+                                                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                                                    <path d="M16 16h5v5"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="message-action-btn edit-btn" @onclick="() => StartEditMessage(message)" title="Edit message">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-pen" aria-hidden="true">
+                                                    <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                    <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="message-action-btn copy-btn" @onclick="() => CopyMessage(message)" title="Copy message">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy copy-icon transition-all duration-200 ease-snappy scale-100 opacity-100" aria-hidden="true">
+                                                    <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+                                                    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                                                </svg>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check check-icon transition-all duration-200 ease-snappy scale-0 opacity-0" aria-hidden="true">
+                                                    <path d="M20 6 9 17l-5-5"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    }
+                                    else if (message.Role == "assistant")
+                                    {
+                                        <div class="message-actions assistant-actions">
+                                            <button class="message-action-btn copy-btn" @onclick="() => CopyMessage(message)" title="Copy message">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy copy-icon transition-all duration-200 ease-snappy scale-100 opacity-100" aria-hidden="true">
+                                                    <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+                                                    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                                                </svg>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check check-icon transition-all duration-200 ease-snappy scale-0 opacity-0" aria-hidden="true">
+                                                    <path d="M20 6 9 17l-5-5"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="message-action-btn branch-btn" @onclick="() => BranchOffMessage(message)" title="Branch off from here">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide h-4 w-4 absolute inset-0 transition-all duration-200 ease-snappy scale-100 opacity-100">
+                                                    <path d="M6.02,5.78m0,15.31V4.55m0,0v-1.91m0,3.14v-1.23m0,1.23c0,1.61,1.21,3.11,3.2,3.94l4.58,1.92c1.98,.83,3.2,2.32,3.2,3.94v3.84"></path>
+                                                    <path d="M20.53,17.59l-3.41,3.66-3.66-3.41"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="message-action-btn retry-btn" @onclick="() => RetryAssistantMessage(message)" title="Retry from here">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-ccw" aria-hidden="true">
+                                                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                                    <path d="M3 3v5h5"></path>
+                                                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                                                    <path d="M16 16h5v5"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    }
+                    
+                    @* Show real-time streaming content for current chat *@
+                    @if (IsCurrentChatGenerating)
+                    {
+                        <div class="message assistant-message" data-message-id="@GetCurrentStreamingMessageId()">
+                            <div class="message-content">
+                                @* Show waiting dots if no content has arrived yet *@
+                                @if (IsWaitingForFirstToken())
+                                {
+                                    <div class="waiting-dots">
+                                        <span>Thinking</span>
+                                        <div class="dots">
+                                            <div class="dot"></div>
+                                            <div class="dot"></div>
+                                            <div class="dot"></div>
+                                        </div>
+                                    </div>
+                                }
+                                
+                                @* Show thinking section if reasoning tokens are present *@
+                                @if (GetCurrentChatHasReasoning())
+                                {
+                                    <div class="thinking-section" id="thinking-@(GetCurrentStreamingMessageId())">
+                                        <div class="thinking-header" @onclick="() => ToggleThinkingSection(GetCurrentStreamingMessageId())">
+                                            <div class="thinking-title">
+                                                <svg class="thinking-icon @(IsCurrentChatActivelyThinking() ? "thinking-active" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <!-- Center circle -->
+                                                    <circle cx="12" cy="12" r="3" />
+
+                                                    <!-- Top ray -->
+                                                    <path d="M12 1v6" />
+
+                                                    <!-- Bottom ray -->
+                                                    <path d="M12 17v6" />
+
+                                                    <!-- Left ray -->
+                                                    <path d="M1 12h6" />
+
+                                                    <!-- Right ray -->
+                                                    <path d="M17 12h6" />
+
+                                                    <!-- Top-left diagonal ray -->
+                                                    <path d="M4.22 4.22l4.24 4.24" />
+
+                                                    <!-- Top-right diagonal ray -->
+                                                    <path d="M15.54 8.46l4.24-4.24" />
+
+                                                    <!-- Bottom-left diagonal ray -->
+                                                    <path d="M4.22 19.78l4.24-4.24" />
+
+                                                    <!-- Bottom-right diagonal ray -->
+                                                    <path d="M15.54 15.54l4.24 4.24" />
+                                                </svg>
+                                                <span>Thinking...</span>
+                                            </div>
+                                            <svg class="thinking-chevron @(IsThinkingExpanded(GetCurrentStreamingMessageId()) ? "expanded" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="6,9 12,15 18,9"></polyline>
+                                            </svg>
+                                        </div>
+                                        <div class="thinking-content @(IsThinkingExpanded(GetCurrentStreamingMessageId()) ? "expanded" : "")">
+                                            <div class="thinking-text">@((MarkupString)MarkdownService.ToHtml(GetCurrentChatReasoning()))</div>
+                                        </div>
+                                    </div>
+                                }
+                                
+                                @* Show assistant response if content is present *@
+                                @if (!string.IsNullOrEmpty(GetCurrentChatResponse()))
+                                {
+                                    <div class="message-text">@((MarkupString)MarkdownService.ToHtml(GetCurrentChatResponse()))</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+                
+                <div class="input-area">
+                    <div class="input-container">
+                        <div class="input-wrapper">
+                            <div class="input-text-area">
+                                <div class="message-input-container">
+                                    <textarea @ref="messageTextArea"
+                                              id="message-input-field"
+                                              class="message-input" 
+                                              placeholder="Type your message here..." 
+                                              @bind="messageInput"
+                                              @bind:event="oninput"
+                                              @bind:after="AutoResizeTextarea"
+                                              onkeydown="handleMessageInputKeyDown(event)"
+                                              disabled="@IsCurrentChatGenerating"></textarea>
+                                </div>
+                            </div>
+                            
+                            <div class="input-controls">
+                                <div class="input-controls-left">
+                                    <div class="model-selector-container">
+                                        <button class="model-selector-button" @onclick="ToggleModelSelector">
+                                            <span class="model-name">@GetModelDisplayName(selectedModel)</span>
+                                            <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="6,9 12,15 18,9"></polyline>
+                                            </svg>
+                                        </button>
+                                        
+                                        @if (showModelSelector)
+                                        {
+                                            <div class="model-selector-overlay" @onclick="() => showModelSelector = false"></div>
+                                            <div class="model-selector-popup" @onclick:stopPropagation="true">
+                                                <div class="model-search-section">
+                                                    <div class="model-search-box">
+                                                        <div class="search-icon">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <circle cx="11" cy="11" r="8"/>
+                                                                <path d="m21 21-4.35-4.35"/>
+                                                            </svg>
+                                                        </div>
+                                                        <input type="text" class="model-search-input" placeholder="Search models..." @bind="modelSearchQuery" @bind:event="oninput" @onchange="FilterModels" />
+                                                    </div>
+                                                </div>
+                                                
+                                                @if (!showAllModels)
+                                                {
+                                                    <!-- Compact list view for favorites -->
+                                                    <div class="model-list">
+                                                        @foreach (var model in GetFilteredModels())
+                                                        {
+                                                            <div class="model-option @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")" 
+                                                                 @onclick="async () => await SelectModel(model.Id)" 
+                                                                 title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                                <div class="model-icon">
+                                                                    @((MarkupString)model.ProviderIcon)
+                                                                </div>
+                                                                <div class="model-info">
+                                                                    <div class="model-title">@model.Name</div>
+                                                                    <div class="model-description">@model.Description</div>
+                                                                </div>
+                                                                <div class="model-capabilities">
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                    {
+                                                                        <div class="capability-icon vision-icon" title="This model has vision">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye h-4 w-4">
+                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                            </svg>
+                                                                        </div>
+                                                                    }
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                    {
+                                                                        <div class="capability-icon reasoning-icon" title="This model supports reasoning">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-brain h-4 w-4">
+                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                            </svg>
+                                                                        </div>
+                                                                    }
+                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                    {
+                                                                        <div class="capability-icon image-gen-icon" title="This model can generate images">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image-plus h-4 w-4">
+                                                                                <path d="M16 5h6"></path>
+                                                                                <path d="M19 2v6"></path>
+                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                            </svg>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <!-- Card grid view for all models with Favorites and Others sections -->
+                                                    <div class="model-cards-container">
+                                                        @{
+                                                            var allModels = GetFilteredModels();
+                                                            var favoriteModels = allModels.Where(m => IsUserFavoriteModel(m.Id)).ToList();
+                                                            var otherModels = allModels.Where(m => !IsUserFavoriteModel(m.Id)).ToList();
+                                                        }
+                                                        
+                                                        @if (favoriteModels.Any())
+                                                        {
+                                                            <div class="model-section">
+                                                                <div class="model-section-header">
+                                                                    <svg class="section-star-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                    </svg>
+                                                                    Favorites
+                                                                </div>
+                                                                <div class="model-cards-grid">
+                                                                    @foreach (var model in favoriteModels)
+                                                                    {
+                                                                        <div class="model-card @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")"
+                                                                             @onclick="async () => await SelectModel(model.Id)"
+                                                                             title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                                            
+                                                                            <!-- Card Header -->
+                                                                            <div class="model-card-header">
+                                                                                <div class="model-icon">
+                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                </div>
+                                                                                <div class="model-card-provider">@model.Provider</div>
+                                                                                <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
+                                                                                        @onclick:stopPropagation="true"
+                                                                                        @onclick="async () => await ToggleFavorite(model.Id)"
+                                                                                        title="@(IsUserFavoriteModel(model.Id) ? "Remove from favorites" : "Add to favorites")">
+                                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                                    </svg>
+                                                                                </button>
+                                                                            </div>
+                                                                            
+                                                                            <!-- Card Content -->
+                                                                            <div class="model-card-content">
+                                                                                <div class="model-title">@model.Name</div>
+                                                                                <div class="model-description">@model.Description</div>
+                                                                                
+                                                                                <!-- Capabilities -->
+                                                                                <div class="model-card-capabilities">
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge vision-badge" title="Vision Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                                            </svg>
+                                                                                            <span>Vision</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge reasoning-badge" title="Reasoning Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                                            </svg>
+                                                                                            <span>Reasoning</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge image-gen-badge" title="Image Generation">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M16 5h6"></path>
+                                                                                                <path d="M19 2v6"></path>
+                                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                                            </svg>
+                                                                                            <span>Image Gen</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        
+                                                        @if (otherModels.Any())
+                                                        {
+                                                            <div class="model-section">
+                                                                <div class="model-section-header">
+                                                                    <svg class="section-grid-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <rect x="3" y="3" width="7" height="7"/>
+                                                                        <rect x="14" y="3" width="7" height="7"/>
+                                                                        <rect x="14" y="14" width="7" height="7"/>
+                                                                        <rect x="3" y="14" width="7" height="7"/>
+                                                                    </svg>
+                                                                    Others
+                                                                </div>
+                                                                <div class="model-cards-grid">
+                                                                    @foreach (var model in otherModels)
+                                                                    {
+                                                                        <div class="model-card @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")"
+                                                                             @onclick="async () => await SelectModel(model.Id)"
+                                                                             title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                                            
+                                                                            <!-- Card Header -->
+                                                                            <div class="model-card-header">
+                                                                                <div class="model-icon">
+                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                </div>
+                                                                                <div class="model-card-provider">@model.Provider</div>
+                                                                                <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
+                                                                                        @onclick:stopPropagation="true"
+                                                                                        @onclick="async () => await ToggleFavorite(model.Id)"
+                                                                                        title="@(IsUserFavoriteModel(model.Id) ? "Remove from favorites" : "Add to favorites")">
+                                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                                    </svg>
+                                                                                </button>
+                                                                            </div>
+                                                                            
+                                                                            <!-- Card Content -->
+                                                                            <div class="model-card-content">
+                                                                                <div class="model-title">@model.Name</div>
+                                                                                <div class="model-description">@model.Description</div>
+                                                                                
+                                                                                <!-- Capabilities -->
+                                                                                <div class="model-card-capabilities">
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge vision-badge" title="Vision Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                                            </svg>
+                                                                                            <span>Vision</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge reasoning-badge" title="Reasoning Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                                            </svg>
+                                                                                            <span>Reasoning</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge image-gen-badge" title="Image Generation">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M16 5h6"></path>
+                                                                                                <path d="M19 2v6"></path>
+                                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                                            </svg>
+                                                                                            <span>Image Gen</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                                
+                                                <div class="model-filter-section">
+                                                    <button class="show-all-button" @onclick="ToggleShowAllModels">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            @if (showAllModels)
+                                                            {
+                                                                <polyline points="18,15 12,9 6,15"></polyline>
+                                                            }
+                                                            else
+                                                            {
+                                                                <polyline points="6,9 12,15 18,9"></polyline>
+                                                            }
+                                                        </svg>
+                                                        <span>Show @(showAllModels ? "less" : "all")</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                    <button class="action-button search-button @(isWebSearchEnabled ? "active" : "")" title="@(isWebSearchEnabled ? "Disable web search" : "Enable web search")" @onclick="async () => await ToggleWebSearch()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <line x1="2" y1="12" x2="22" y2="12"/>
+                                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                                        </svg>
+                                        <span>Search</span>
+                                    </button>
+                                    <button class="action-button attach-button"
+                                            title="Attach files"
+                                            @onclick="HandleFileUpload">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                                
+                                <div class="input-controls-right">
+                                    @if (IsCurrentChatGenerating)
+                                    {
+                                        <button class="send-button stop-button" @onclick="StopCurrentChatGeneration" title="Stop generation">
+                                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                                <rect x="6" y="6" width="12" height="12" rx="2" ry="2"/>
+                                            </svg>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="send-button" @onclick="SendMessage" disabled="@string.IsNullOrWhiteSpace(messageInput)" title="Send message">
+                                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M6 12l6-6 6 6M12 6v12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                                            </svg>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            
+                            <!-- Hidden file input -->
+                            <InputFile id="file-input" @ref="fileInputComponent" OnChange="@OnFileChange" multiple accept="@GetAcceptedFileTypes()" style="display: none;" />
+                            
+                            <!-- Attachments display -->
+                            @if (currentAttachments.Any())
+                            {
+                                <div class="attachments-preview">
+                                    @for (int i = 0; i < currentAttachments.Count; i++)
+                                    {
+                                        var index = i;
+                                        var attachment = currentAttachments[i];
+                                        <div class="attachment-item">
+                                            <span class="attachment-icon">@((MarkupString)GetAttachmentIcon(attachment.Type))</span>
+                                            <span class="attachment-name" title="@attachment.FileName">@GetAttachmentDisplayName(attachment)</span>
+                                            <button class="attachment-remove" @onclick="() => RemoveAttachment(index)" title="Remove attachment">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M18 6 6 18"></path>
+                                                    <path d="M6 6l12 12"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="welcome-screen">
+                <div class="welcome-content">
+                    <h1 class="welcome-title">How can I help you, @(GetCapitalizedUsername())?</h1>
+                    
+                    <div class="suggestion-cards">
+                        <div class="suggestion-card @(selectedSuggestionCategory == "Create" ? "active" : "")" @onclick='() => SelectSuggestionCategory("Create")'>
+                            <div class="suggestion-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path>
+                                    <path d="M20 3v4"></path>
+                                    <path d="M22 5h-4"></path>
+                                    <path d="M4 17v2"></path>
+                                    <path d="M5 18H3"></path>
+                                </svg>
+                            </div>
+                            <div class="suggestion-title">Create</div>
+                        </div>
+                        
+                        <div class="suggestion-card @(selectedSuggestionCategory == "Explore" ? "active" : "")" @onclick='() => SelectSuggestionCategory("Explore")'>
+                            <div class="suggestion-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"></path>
+                                    <path d="M18 14h-8"></path>
+                                    <path d="M15 18h-5"></path>
+                                    <path d="M10 6h8v4h-8V6Z"></path>
+                                </svg>
+                            </div>
+                            <div class="suggestion-title">Explore</div>
+                        </div>
+                        
+                        <div class="suggestion-card @(selectedSuggestionCategory == "Code" ? "active" : "")" @onclick='() => SelectSuggestionCategory("Code")'>
+                            <div class="suggestion-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="16 18 22 12 16 6"></polyline>
+                                    <polyline points="8 6 2 12 8 18"></polyline>
+                                </svg>
+                            </div>
+                            <div class="suggestion-title">Code</div>
+                        </div>
+                        
+                        <div class="suggestion-card @(selectedSuggestionCategory == "Learn" ? "active" : "")" @onclick='() => SelectSuggestionCategory("Learn")'>
+                            <div class="suggestion-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"></path>
+                                    <path d="M22 10v6"></path>
+                                    <path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"></path>
+                                </svg>
+                            </div>
+                            <div class="suggestion-title">Learn</div>
+                        </div>
+                    </div>
+                    
+                    <ul class="suggestion-examples">
+                        @foreach (var example in GetCurrentSuggestionExamples())
+                        {
+                            <li @onclick='() => SuggestMessage(example)'>@example</li>
+                        }
+                    </ul>
+                </div>
+                
+                <div class="input-area">
+                    <div class="input-container">
+                        <div class="input-wrapper">
+                            <div class="input-text-area">
+                                <div class="message-input-container">
+                                    <textarea @ref="messageTextArea"
+                                              id="message-input-field"
+                                              class="message-input" 
+                                              placeholder="Type your message here..." 
+                                              @bind="messageInput"
+                                              @bind:event="oninput"
+                                              @bind:after="AutoResizeTextarea"
+                                              onkeydown="handleMessageInputKeyDown(event)"
+                                              disabled="@IsCurrentChatGenerating"></textarea>
+                                </div>
+                            </div>
+                            
+                            <div class="input-controls">
+                                <div class="input-controls-left">
+                                    <div class="model-selector-container">
+                                        <button class="model-selector-button" @onclick="ToggleModelSelector">
+                                            <span class="model-name">@GetModelDisplayName(selectedModel)</span>
+                                            <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="6,9 12,15 18,9"></polyline>
+                                            </svg>
+                                        </button>
+                                        
+                                        @if (showModelSelector)
+                                        {
+                                            <div class="model-selector-overlay" @onclick="() => showModelSelector = false"></div>
+                                            <div class="model-selector-popup" @onclick:stopPropagation="true">
+                                                <div class="model-search-section">
+                                                    <div class="model-search-box">
+                                                        <div class="search-icon">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <circle cx="11" cy="11" r="8"/>
+                                                                <path d="m21 21-4.35-4.35"/>
+                                                            </svg>
+                                                        </div>
+                                                        <input type="text" class="model-search-input" placeholder="Search models..." @bind="modelSearchQuery" @bind:event="oninput" @onchange="FilterModels" />
+                                                    </div>
+                                                </div>
+                                                
+                                                @if (!showAllModels)
+                                                {
+                                                    <!-- Compact list view for favorites -->
+                                                    <div class="model-list">
+                                                        @foreach (var model in GetFilteredModels())
+                                                        {
+                                                            <div class="model-option @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")" 
+                                                                 @onclick="async () => await SelectModel(model.Id)" 
+                                                                 title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                                <div class="model-icon">
+                                                                    @((MarkupString)model.ProviderIcon)
+                                                                </div>
+                                                                <div class="model-info">
+                                                                    <div class="model-title">@model.Name</div>
+                                                                    <div class="model-description">@model.Description</div>
+                                                                </div>
+                                                                <div class="model-capabilities">
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                    {
+                                                                        <div class="capability-icon vision-icon" title="This model has vision">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye h-4 w-4">
+                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                            </svg>
+                                                                        </div>
+                                                                    }
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                    {
+                                                                        <div class="capability-icon reasoning-icon" title="This model supports reasoning">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-brain h-4 w-4">
+                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                            </svg>
+                                                                        </div>
+                                                                    }
+                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                    {
+                                                                        <div class="capability-icon image-gen-icon" title="This model can generate images">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image-plus h-4 w-4">
+                                                                                <path d="M16 5h6"></path>
+                                                                                <path d="M19 2v6"></path>
+                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                            </svg>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <!-- Card grid view for all models with Favorites and Others sections -->
+                                                    <div class="model-cards-container">
+                                                        @{
+                                                            var allModels = GetFilteredModels();
+                                                            var favoriteModels = allModels.Where(m => IsUserFavoriteModel(m.Id)).ToList();
+                                                            var otherModels = allModels.Where(m => !IsUserFavoriteModel(m.Id)).ToList();
+                                                        }
+                                                        
+                                                        @if (favoriteModels.Any())
+                                                        {
+                                                            <div class="model-section">
+                                                                <div class="model-section-header">
+                                                                    <svg class="section-star-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                    </svg>
+                                                                    Favorites
+                                                                </div>
+                                                                <div class="model-cards-grid">
+                                                                    @foreach (var model in favoriteModels)
+                                                                    {
+                                                                        <div class="model-card @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")"
+                                                                             @onclick="async () => await SelectModel(model.Id)"
+                                                                             title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                                            
+                                                                            <!-- Card Header -->
+                                                                            <div class="model-card-header">
+                                                                                <div class="model-icon">
+                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                </div>
+                                                                                <div class="model-card-provider">@model.Provider</div>
+                                                                                <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
+                                                                                        @onclick:stopPropagation="true"
+                                                                                        @onclick="async () => await ToggleFavorite(model.Id)"
+                                                                                        title="@(IsUserFavoriteModel(model.Id) ? "Remove from favorites" : "Add to favorites")">
+                                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                                    </svg>
+                                                                                </button>
+                                                                            </div>
+                                                                            
+                                                                            <!-- Card Content -->
+                                                                            <div class="model-card-content">
+                                                                                <div class="model-title">@model.Name</div>
+                                                                                <div class="model-description">@model.Description</div>
+                                                                                
+                                                                                <!-- Capabilities -->
+                                                                                <div class="model-card-capabilities">
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge vision-badge" title="Vision Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                                            </svg>
+                                                                                            <span>Vision</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge reasoning-badge" title="Reasoning Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                                            </svg>
+                                                                                            <span>Reasoning</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge image-gen-badge" title="Image Generation">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M16 5h6"></path>
+                                                                                                <path d="M19 2v6"></path>
+                                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                                            </svg>
+                                                                                            <span>Image Gen</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                        
+                                                        @if (otherModels.Any())
+                                                        {
+                                                            <div class="model-section">
+                                                                <div class="model-section-header">
+                                                                    <svg class="section-grid-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <rect x="3" y="3" width="7" height="7"/>
+                                                                        <rect x="14" y="3" width="7" height="7"/>
+                                                                        <rect x="14" y="14" width="7" height="7"/>
+                                                                        <rect x="3" y="14" width="7" height="7"/>
+                                                                    </svg>
+                                                                    Others
+                                                                </div>
+                                                                <div class="model-cards-grid">
+                                                                    @foreach (var model in otherModels)
+                                                                    {
+                                                                        <div class="model-card @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")"
+                                                                             @onclick="async () => await SelectModel(model.Id)"
+                                                                             title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                                            
+                                                                            <!-- Card Header -->
+                                                                            <div class="model-card-header">
+                                                                                <div class="model-icon">
+                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                </div>
+                                                                                <div class="model-card-provider">@model.Provider</div>
+                                                                                <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
+                                                                                        @onclick:stopPropagation="true"
+                                                                                        @onclick="async () => await ToggleFavorite(model.Id)"
+                                                                                        title="@(IsUserFavoriteModel(model.Id) ? "Remove from favorites" : "Add to favorites")">
+                                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                                    </svg>
+                                                                                </button>
+                                                                            </div>
+                                                                            
+                                                                            <!-- Card Content -->
+                                                                            <div class="model-card-content">
+                                                                                <div class="model-title">@model.Name</div>
+                                                                                <div class="model-description">@model.Description</div>
+                                                                                
+                                                                                <!-- Capabilities -->
+                                                                                <div class="model-card-capabilities">
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge vision-badge" title="Vision Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                                            </svg>
+                                                                                            <span>Vision</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge reasoning-badge" title="Reasoning Support">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                                            </svg>
+                                                                                            <span>Reasoning</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                                    {
+                                                                                        <div class="capability-badge image-gen-badge" title="Image Generation">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                                <path d="M16 5h6"></path>
+                                                                                                <path d="M19 2v6"></path>
+                                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                                            </svg>
+                                                                                            <span>Image Gen</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                                
+                                                <div class="model-filter-section">
+                                                    <button class="show-all-button" @onclick="ToggleShowAllModels">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            @if (showAllModels)
+                                                            {
+                                                                <polyline points="18,15 12,9 6,15"></polyline>
+                                                            }
+                                                            else
+                                                            {
+                                                                <polyline points="6,9 12,15 18,9"></polyline>
+                                                            }
+                                                        </svg>
+                                                        <span>Show @(showAllModels ? "less" : "all")</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                    <button class="action-button search-button @(isWebSearchEnabled ? "active" : "")" title="@(isWebSearchEnabled ? "Disable web search" : "Enable web search")" @onclick="async () => await ToggleWebSearch()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <line x1="2" y1="12" x2="22" y2="12"/>
+                                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                                        </svg>
+                                        <span>Search</span>
+                                    </button>
+                                    <button class="action-button attach-button"
+                                            title="Attach files"
+                                            @onclick="HandleFileUpload">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                                
+                                <div class="input-controls-right">
+                                    @if (IsCurrentChatGenerating)
+                                    {
+                                        <button class="send-button stop-button" @onclick="StopCurrentChatGeneration" title="Stop generation">
+                                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                                <rect x="6" y="6" width="12" height="12" rx="2" ry="2"/>
+                                            </svg>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="send-button" @onclick="SendMessage" disabled="@string.IsNullOrWhiteSpace(messageInput)" title="Send message">
+                                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M6 12l6-6 6 6M12 6v12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                                            </svg>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            
+                            <!-- Hidden file input -->
+                            <InputFile id="file-input" @ref="fileInputComponent" OnChange="@OnFileChange" multiple accept="@GetAcceptedFileTypes()" style="display: none;" />
+                            
+                            <!-- Attachments display -->
+                            @if (currentAttachments.Any())
+                            {
+                                <div class="attachments-preview">
+                                    @for (int i = 0; i < currentAttachments.Count; i++)
+                                    {
+                                        var index = i;
+                                        var attachment = currentAttachments[i];
+                                        <div class="attachment-item">
+                                            <span class="attachment-icon">@((MarkupString)GetAttachmentIcon(attachment.Type))</span>
+                                            <span class="attachment-name" title="@attachment.FileName">@GetAttachmentDisplayName(attachment)</span>
+                                            <button class="attachment-remove" @onclick="() => RemoveAttachment(index)" title="Remove attachment">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M18 6 6 18"></path>
+                                                    <path d="M6 6l12 12"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
