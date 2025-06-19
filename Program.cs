@@ -15,7 +15,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddControllersWithViews();
 
 // Configure database with hosted PostgreSQL
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
+builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
 {
     // Try multiple connection string names for Azure compatibility
     var connectionString = builder.Configuration.GetConnectionString("HostedPostgreSQL") 
@@ -34,6 +34,16 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
             $"Please configure the connection string in Azure App Service Configuration.");
     }
     
+    options.UseNpgsql(connectionString);
+});
+
+// Also add regular DbContext for Identity which requires it
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("HostedPostgreSQL") 
+                          ?? builder.Configuration.GetConnectionString("DefaultConnection")
+                          ?? Environment.GetEnvironmentVariable("HostedPostgreSQL")
+                          ?? Environment.GetEnvironmentVariable("DefaultConnection");
     options.UseNpgsql(connectionString);
 });
 
