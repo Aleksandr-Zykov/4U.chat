@@ -77,12 +77,17 @@ public partial class Home : ComponentBase, IDisposable
     { 
         get 
         {
-            var newChatId = ChatId ?? currentChat?.Id;
-            if (cachedCurrentChatId != newChatId)
+            // Always return the most current value without relying on cache
+            var actualChatId = ChatId ?? currentChat?.Id;
+            
+            // Update cache if it's different (for debugging/tracking purposes)
+            if (cachedCurrentChatId != actualChatId)
             {
-                cachedCurrentChatId = newChatId;
+                System.Diagnostics.Debug.WriteLine($"CurrentChatId changed from {cachedCurrentChatId} to {actualChatId}");
+                cachedCurrentChatId = actualChatId;
             }
-            return cachedCurrentChatId;
+            
+            return actualChatId;
         } 
     }
     
@@ -507,7 +512,7 @@ public partial class Home : ComponentBase, IDisposable
                 currentChat = null;
                 messages = null;
                 processedMessageContent.Clear();
-                cachedCurrentChatId = null; // Clear cached chat ID
+                cachedCurrentChatId = null; // Reset cache tracking
                 if (!isDisposed)
                 {
                     await ForceStateHasChanged();
@@ -691,6 +696,9 @@ public partial class Home : ComponentBase, IDisposable
     {
         // If we're already on this chat, don't do anything
         if (currentChat?.Id == chatId) return;
+        
+        // Reset cache tracking when selecting a new chat
+        cachedCurrentChatId = null;
         
         // Immediately update visual state via JavaScript to avoid Blazor re-render delays
         if (!isPrerendering)
@@ -975,6 +983,14 @@ public partial class Home : ComponentBase, IDisposable
     private async Task StartGeneration()
     {
         if (currentChat == null || messages == null) return;
+        
+        // Force cache refresh to ensure CurrentChatId is synchronized
+        var previousCachedId = cachedCurrentChatId;
+        cachedCurrentChatId = currentChat.Id;
+        if (previousCachedId != currentChat.Id)
+        {
+            System.Diagnostics.Debug.WriteLine($"StartGeneration: Corrected cached chat ID from {previousCachedId} to {currentChat.Id}");
+        }
         
         // Check API key before starting any streaming UI
         var apiKey = currentUser?.OpenRouterApiKey;
@@ -2094,8 +2110,9 @@ public partial class Home : ComponentBase, IDisposable
 
         await dbContext.SaveChangesAsync();
         
-        // Clear processed content cache
+        // Clear processed content cache and invalidate chat ID cache
         processedMessageContent.Clear();
+        cachedCurrentChatId = null; // Reset cache tracking before navigation
         
         // Refresh chat list and navigate to the new branched chat
         await LoadUserChats();
