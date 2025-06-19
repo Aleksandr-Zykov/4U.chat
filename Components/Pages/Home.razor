@@ -99,6 +99,12 @@
         setTimeout(window.highlightCode, 100);
     };
 
+    // Immediate highlight function for streaming content
+    window.highlightCodeImmediate = () => {
+        // For streaming content, highlight immediately without delay
+        window.highlightCode();
+    };
+
     // Trigger highlighting when page loads
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
@@ -1034,24 +1040,38 @@
             }
         </button>
         
-        @if (CurrentChatId.HasValue && currentChat != null)
+        @if (CurrentChatId.HasValue && (currentChat != null || isInitializing))
         {
-            <div class="chat-header">
-                <h3>
-                    @if (isChatNameAnimating && currentChat != null && !string.IsNullOrEmpty(animatingChatName))
-                    {
-                        <span class="chat-name-animating" id="chat-header-name">@animatingChatName</span>
-                    }
-                    else if (currentChat != null)
-                    {
-                        <span class="chat-name-static">@(currentChat.Title ?? "New Chat")</span>
-                    }
-                </h3>
-            </div>
+            @if (currentChat != null)
+            {
+                <div class="chat-header">
+                    <h3>
+                        @if (isChatNameAnimating && currentChat != null && !string.IsNullOrEmpty(animatingChatName))
+                        {
+                            <span class="chat-name-animating" id="chat-header-name">@animatingChatName</span>
+                        }
+                        else if (currentChat != null)
+                        {
+                            <span class="chat-name-static">@(currentChat.Title ?? "New Chat")</span>
+                        }
+                    </h3>
+                </div>
+            }
+            else
+            {
+                <!-- Loading state while chat is being loaded -->
+                <div class="chat-header">
+                    <h3>
+                        <span class="chat-name-static">Loading...</span>
+                    </h3>
+                </div>
+            }
             
-            <div class="chat-area">
-                <div class="messages-container">
-                    @if (messages != null)
+            @if (currentChat != null)
+            {
+                <div class="chat-area">
+                    <div class="messages-container">
+                        @if (messages != null)
                     {
                         @foreach (var message in messages)
                         {
@@ -1635,6 +1655,18 @@
                     </div>
                 </div>
             </div>
+            }
+            else
+            {
+                <!-- Loading state for chat content -->
+                <div class="chat-area">
+                    <div class="messages-container">
+                        <div style="display: flex; justify-content: center; align-items: center; height: 200px; color: #888;">
+                            <div>Loading chat...</div>
+                        </div>
+                    </div>
+                </div>
+            }
         }
         else
         {

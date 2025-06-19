@@ -49,6 +49,7 @@ public partial class Home : ComponentBase, IDisposable
     private string modelSearchQuery = string.Empty;
     private bool showAllModels = false;
     private bool shouldHighlightCode = false;
+    private DateTime lastHighlightRequest = DateTime.MinValue;
     private bool isGeneratingChatName = false;
     private string animatingChatName = string.Empty;
     private bool isChatNameAnimating = false;
@@ -405,6 +406,23 @@ public partial class Home : ComponentBase, IDisposable
                 {
                     // Don't navigate during initialization - we're already at the correct URL
                     await SelectChat(ChatId.Value, shouldNavigate: false);
+                    
+                    // Ensure sidebar selection is set after DOM is ready (for page refresh scenarios)
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(100); // Wait for DOM to be ready
+                        if (!isDisposed && !isPrerendering)
+                        {
+                            try
+                            {
+                                await JSRuntime.InvokeVoidAsync("setActiveChatItem", disposalTokenSource.Token, ChatId.Value);
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"setActiveChatItem retry failed: {ex.Message}");
+                            }
+                        }
+                    });
                 }
                 
                 if (isDisposed) return;
@@ -608,9 +626,6 @@ public partial class Home : ComponentBase, IDisposable
                 var handlerSetResult = await JSRuntime.InvokeAsync<bool>("setBlazorCitationHandler", disposalTokenSource.Token, citationHandlerReference);
                 System.Diagnostics.Debug.WriteLine($"Blazor handler setup result: {handlerSetResult}");
                 
-                // Add a small delay to ensure everything is ready
-                await Task.Delay(100);
-                
                 // Initialize citation feature
                 await JSRuntime.InvokeVoidAsync("initializeCitationFeature", disposalTokenSource.Token);
                 
@@ -732,8 +747,6 @@ public partial class Home : ComponentBase, IDisposable
                 {
                     _ = Task.Run(async () =>
                     {
-                        // Wait a bit for the DOM to update
-                        await Task.Delay(150);
                         try
                         {
                             await JSRuntime.InvokeVoidAsync("scrollToMessage", disposalTokenSource.Token, lastUserMessage.Id);
@@ -758,8 +771,6 @@ public partial class Home : ComponentBase, IDisposable
                 {
                     _ = Task.Run(async () =>
                     {
-                        // Wait a bit for the DOM to update
-                        await Task.Delay(150);
                         try
                         {
                             await JSRuntime.InvokeVoidAsync("scrollToMessage", disposalTokenSource.Token, lastUserMessage.Id);
@@ -779,6 +790,19 @@ public partial class Home : ComponentBase, IDisposable
     private async Task CreateNewChat()
     {
         if (currentUser == null) return;
+
+        // Clear active chat selection immediately via JavaScript
+        if (!isPrerendering)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("setActiveChatItem", disposalTokenSource.Token, (object?)null);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"setActiveChatItem clear failed: {ex.Message}");
+            }
+        }
 
         // Reset to home state (clear current chat)
         currentChat = null;
@@ -904,8 +928,6 @@ public partial class Home : ComponentBase, IDisposable
         // Scroll to the newly sent message after render
         _ = Task.Run(async () =>
         {
-            // Wait a bit for the DOM to update
-            await Task.Delay(150);
             try
             {
                 await JSRuntime.InvokeVoidAsync("scrollToMessage", disposalTokenSource.Token, userMessage.Id);
@@ -1532,6 +1554,27 @@ public partial class Home : ComponentBase, IDisposable
             
             // Refresh the chat list
             await LoadUserChats();
+            
+            // Restore selection if this was the current chat
+            if (currentChat?.Id == chatId)
+            {
+                // Force a state update to ensure the sidebar renders with updated pin status
+                StateHasChanged();
+                
+                // Restore the sidebar selection
+                if (!isPrerendering)
+                {
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync("setActiveChatItem", disposalTokenSource.Token, chatId);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"setActiveChatItem restore failed: {ex.Message}");
+                    }
+                }
+            }
+            
             StateHasChanged();
         }
     }
@@ -1605,6 +1648,12 @@ public partial class Home : ComponentBase, IDisposable
                 chatToUpdate.Title = newName;
                 chatToUpdate.UpdatedAt = DateTime.UtcNow;
                 await dbContext.SaveChangesAsync();
+                
+                // Also update the local currentChat object if it's the same chat
+                if (currentChat?.Id == chat.Id)
+                {
+                    currentChat.Title = newName;
+                }
             }
             await LoadUserChats();
             return;
@@ -1638,6 +1687,12 @@ public partial class Home : ComponentBase, IDisposable
                 chatToUpdate.Title = newName;
                 chatToUpdate.UpdatedAt = DateTime.UtcNow;
                 await dbContext.SaveChangesAsync();
+                
+                // Also update the local currentChat object if it's the same chat
+                if (currentChat?.Id == chat.Id)
+                {
+                    currentChat.Title = newName;
+                }
             }
             await LoadUserChats();
             
@@ -1665,6 +1720,12 @@ public partial class Home : ComponentBase, IDisposable
                 chatToUpdate.Title = newName;
                 chatToUpdate.UpdatedAt = DateTime.UtcNow;
                 await dbContext.SaveChangesAsync();
+                
+                // Also update the local currentChat object if it's the same chat
+                if (currentChat?.Id == chat.Id)
+                {
+                    currentChat.Title = newName;
+                }
             }
             await LoadUserChats();
             
@@ -1719,6 +1780,14 @@ public partial class Home : ComponentBase, IDisposable
                     // Invalidate processed content cache
                     processedMessageContent.Remove(lastMessage.Id);
                     
+                    // Trigger syntax highlighting for new content (with throttling for streaming)
+                    var now = DateTime.UtcNow;
+                    if (now - lastHighlightRequest > TimeSpan.FromMilliseconds(250) || !isCurrentlyStreaming)
+                    {
+                        shouldHighlightCode = true;
+                        lastHighlightRequest = now;
+                    }
+                    
                     // Update UI
                     if (!isDisposed)
                     {
@@ -1731,6 +1800,11 @@ public partial class Home : ComponentBase, IDisposable
                 else if (!isCurrentlyStreaming && DateTime.UtcNow - _lastMessageUpdate < TimeSpan.FromSeconds(2))
                 {
                     System.Diagnostics.Debug.WriteLine($"Forcing final UI update after streaming completion for chat {currentChat.Id}");
+                    
+                    // Trigger final syntax highlighting when streaming completes (always, no throttling)
+                    shouldHighlightCode = true;
+                    lastHighlightRequest = DateTime.UtcNow;
+                    
                     if (!isDisposed)
                     {
                         await InvokeAsync(StateHasChanged);
@@ -2035,6 +2109,10 @@ public partial class Home : ComponentBase, IDisposable
         
         // Refresh chat list and navigate to the new branched chat
         await LoadUserChats();
+        
+        // Force a state update to ensure the sidebar renders with the new chat
+        StateHasChanged();
+        
         await SelectChat(branchedChat.Id, shouldNavigate: true);
     }
 
