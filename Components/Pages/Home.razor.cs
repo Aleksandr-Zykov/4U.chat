@@ -12,11 +12,11 @@ using _4U.chat.Services;
 
 namespace _4U.chat.Components.Pages;
 
-public partial class Home : IDisposable
+public partial class Home : ComponentBase, IDisposable
 {
     [Parameter] public int? ChatId { get; set; }
     
-    [Inject] private ApplicationDbContext DbContext { get; set; } = default!;
+    [Inject] private IDbContextFactory<ApplicationDbContext> DbContextFactory { get; set; } = default!;
     [Inject] private UserManager<User> UserManager { get; set; } = default!;
     [Inject] private OpenRouterService OpenRouterService { get; set; } = default!;
     [Inject] private NavigationManager Navigation { get; set; } = default!;
@@ -661,7 +661,8 @@ public partial class Home : IDisposable
     {
         if (currentUser != null)
         {
-            var chats = await DbContext.Chats
+            using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var chats = await dbContext.Chats
                 .Where(c => c.UserId == currentUser.Id)
                 .OrderByDescending(c => c.UpdatedAt)
                 .ToListAsync();
@@ -690,7 +691,8 @@ public partial class Home : IDisposable
             }
         }
         
-        currentChat = await DbContext.Chats
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
+        currentChat = await dbContext.Chats
             .Include(c => c.Messages)
             .FirstOrDefaultAsync(c => c.Id == chatId && c.UserId == currentUser!.Id);
             
@@ -839,6 +841,8 @@ public partial class Home : IDisposable
         messageInput = string.Empty;
         currentAttachments.Clear();
         
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
+        
         // Create chat if none exists (when sending message from homepage)
         bool isNewChat = false;
         if (currentChat == null)
@@ -851,11 +855,11 @@ public partial class Home : IDisposable
                 UpdatedAt = DateTime.UtcNow
             };
 
-            DbContext.Chats.Add(newChat);
-            await DbContext.SaveChangesAsync();
+            dbContext.Chats.Add(newChat);
+            await dbContext.SaveChangesAsync();
             
             // Set up chat state WITHOUT navigation to avoid interrupting message flow
-            currentChat = await DbContext.Chats
+            currentChat = await dbContext.Chats
                 .Include(c => c.Messages)
                 .FirstOrDefaultAsync(c => c.Id == newChat.Id && c.UserId == currentUser.Id);
             
@@ -881,7 +885,7 @@ public partial class Home : IDisposable
             Attachments = attachments
         };
 
-        DbContext.Messages.Add(userMessage);
+        dbContext.Messages.Add(userMessage);
         messages?.Add(userMessage);
         
         // Update chat title if it's still "New Chat"
@@ -890,7 +894,7 @@ public partial class Home : IDisposable
             _ = GenerateChatNameAsync(content, currentChat.Id);
         }
 
-        await DbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
         await LoadUserChats();
         
         // Trigger syntax highlighting for new user message
@@ -988,8 +992,9 @@ public partial class Home : IDisposable
             Model = GetActualModelId(selectedModel)
         };
         
-        DbContext.Messages.Add(assistantMessage);
-        await DbContext.SaveChangesAsync();
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
+        dbContext.Messages.Add(assistantMessage);
+        await dbContext.SaveChangesAsync();
         messages.Add(assistantMessage);
         
         // Prepare chat messages for the API
@@ -1038,7 +1043,10 @@ public partial class Home : IDisposable
                 "4. Wait a moment and try again\n\n" +
                 "*If the problem persists, please check the OpenRouter service status.*";
             assistantMessage.UpdatedAt = DateTime.UtcNow;
-            await DbContext.SaveChangesAsync();
+            
+            using var updateDbContext = await DbContextFactory.CreateDbContextAsync();
+            updateDbContext.Update(assistantMessage);
+            await updateDbContext.SaveChangesAsync();
             
             await InvokeAsync(StateHasChanged);
         }
@@ -1477,19 +1485,20 @@ public partial class Home : IDisposable
     {
         if (currentUser == null) return;
         
-        var chatToDelete = await DbContext.Chats
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
+        var chatToDelete = await dbContext.Chats
             .Include(c => c.Messages)
             .FirstOrDefaultAsync(c => c.Id == chatId && c.UserId == currentUser.Id);
             
         if (chatToDelete != null)
         {
             // Delete all messages first
-            DbContext.Messages.RemoveRange(chatToDelete.Messages);
+            dbContext.Messages.RemoveRange(chatToDelete.Messages);
             
             // Delete the chat
-            DbContext.Chats.Remove(chatToDelete);
+            dbContext.Chats.Remove(chatToDelete);
             
-            await DbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync();
             
             // If we deleted the current chat, navigate to home
             if (CurrentChatId == chatId)
@@ -1508,7 +1517,8 @@ public partial class Home : IDisposable
     {
         if (currentUser == null) return;
         
-        var chatToPin = await DbContext.Chats
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
+        var chatToPin = await dbContext.Chats
             .FirstOrDefaultAsync(c => c.Id == chatId && c.UserId == currentUser.Id);
             
         if (chatToPin != null)
@@ -1518,7 +1528,7 @@ public partial class Home : IDisposable
             // Don't update UpdatedAt when changing pin status
             // This preserves the original timestamp for correct time-based placement
             
-            await DbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync();
             
             // Refresh the chat list
             await LoadUserChats();
@@ -1542,7 +1552,8 @@ public partial class Home : IDisposable
             var result = await OpenRouterService.GenerateChatNameAsync(userMessage, apiKey);
             System.Diagnostics.Debug.WriteLine($"API result: {result?.Name ?? "NULL"}");
             
-            var chat = await DbContext.Chats.FindAsync(chatId);
+            using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var chat = await dbContext.Chats.FindAsync(chatId);
             if (chat != null && chat.Title == "New Chat" && !string.IsNullOrEmpty(result?.Name))
             {
                 System.Diagnostics.Debug.WriteLine($"Animating name: {result.Name}");
@@ -1554,7 +1565,7 @@ public partial class Home : IDisposable
                 // Fallback if result is empty
                 chat.Title = userMessage.Length > 50 ? userMessage.Substring(0, 50) + "..." : userMessage;
                 chat.UpdatedAt = DateTime.UtcNow;
-                await DbContext.SaveChangesAsync();
+                await dbContext.SaveChangesAsync();
                 await LoadUserChats();
                 StateHasChanged();
             }
@@ -1563,12 +1574,13 @@ public partial class Home : IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"API call failed: {ex.Message}");
             // Fallback to original logic if API fails
-            var chat = await DbContext.Chats.FindAsync(chatId);
+            using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var chat = await dbContext.Chats.FindAsync(chatId);
             if (chat != null && chat.Title == "New Chat")
             {
                 chat.Title = userMessage.Length > 50 ? userMessage.Substring(0, 50) + "..." : userMessage;
                 chat.UpdatedAt = DateTime.UtcNow;
-                await DbContext.SaveChangesAsync();
+                await dbContext.SaveChangesAsync();
                 await LoadUserChats();
                 StateHasChanged();
             }
@@ -1586,9 +1598,14 @@ public partial class Home : IDisposable
         // If prerendering, just update directly without animation
         if (isPrerendering)
         {
-            chat.Title = newName;
-            chat.UpdatedAt = DateTime.UtcNow;
-            await DbContext.SaveChangesAsync();
+            using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var chatToUpdate = await dbContext.Chats.FindAsync(chat.Id);
+            if (chatToUpdate != null)
+            {
+                chatToUpdate.Title = newName;
+                chatToUpdate.UpdatedAt = DateTime.UtcNow;
+                await dbContext.SaveChangesAsync();
+            }
             await LoadUserChats();
             return;
         }
@@ -1614,9 +1631,14 @@ public partial class Home : IDisposable
             if (isDisposed) return;
             
             // Animation complete - now update the database
-            chat.Title = newName;
-            chat.UpdatedAt = DateTime.UtcNow;
-            await DbContext.SaveChangesAsync();
+            using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var chatToUpdate = await dbContext.Chats.FindAsync(chat.Id);
+            if (chatToUpdate != null)
+            {
+                chatToUpdate.Title = newName;
+                chatToUpdate.UpdatedAt = DateTime.UtcNow;
+                await dbContext.SaveChangesAsync();
+            }
             await LoadUserChats();
             
             if (!isDisposed)
@@ -1636,9 +1658,14 @@ public partial class Home : IDisposable
         catch (NotSupportedException)
         {
             // JS not available, fallback to direct update
-            chat.Title = newName;
-            chat.UpdatedAt = DateTime.UtcNow;
-            await DbContext.SaveChangesAsync();
+            using var dbContext = await DbContextFactory.CreateDbContextAsync();
+            var chatToUpdate = await dbContext.Chats.FindAsync(chat.Id);
+            if (chatToUpdate != null)
+            {
+                chatToUpdate.Title = newName;
+                chatToUpdate.UpdatedAt = DateTime.UtcNow;
+                await dbContext.SaveChangesAsync();
+            }
             await LoadUserChats();
             
             if (!isDisposed)
@@ -1679,8 +1706,9 @@ public partial class Home : IDisposable
             var lastMessage = messages?.LastOrDefault(m => m.Role == "assistant");
             if (lastMessage != null)
             {
+                using var dbContext = await DbContextFactory.CreateDbContextAsync();
                 // Reload the message from database to get latest content
-                await DbContext.Entry(lastMessage).ReloadAsync();
+                await dbContext.Entry(lastMessage).ReloadAsync();
                 
                 // Check if content has changed
                 var newUpdateTime = lastMessage.UpdatedAt;
@@ -1780,14 +1808,15 @@ public partial class Home : IDisposable
     {
         if (currentChat == null || IsCurrentChatGenerating) return;
 
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
         // Delete any messages that came after this user message
-        var messagesToDelete = await DbContext.Messages
+        var messagesToDelete = await dbContext.Messages
             .Where(m => m.ChatId == currentChat.Id && m.CreatedAt > userMessage.CreatedAt)
             .ToListAsync();
 
         if (messagesToDelete.Any())
         {
-            DbContext.Messages.RemoveRange(messagesToDelete);
+            dbContext.Messages.RemoveRange(messagesToDelete);
             
             // Update local messages list
             if (messages != null)
@@ -1800,7 +1829,7 @@ public partial class Home : IDisposable
             }
         }
 
-        await DbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
         
         // Clear processed content cache and update UI
         processedMessageContent.Clear();
@@ -1825,17 +1854,18 @@ public partial class Home : IDisposable
     {
         if (currentChat == null || string.IsNullOrWhiteSpace(editingMessageContent)) return;
 
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
         // Update the message content
         userMessage.Content = editingMessageContent.Trim();
         
         // Delete any messages that came after this one
-        var messagesToDelete = await DbContext.Messages
+        var messagesToDelete = await dbContext.Messages
             .Where(m => m.ChatId == currentChat.Id && m.CreatedAt > userMessage.CreatedAt)
             .ToListAsync();
 
         if (messagesToDelete.Any())
         {
-            DbContext.Messages.RemoveRange(messagesToDelete);
+            dbContext.Messages.RemoveRange(messagesToDelete);
             
             // Update local messages list
             if (messages != null)
@@ -1848,7 +1878,7 @@ public partial class Home : IDisposable
             }
         }
 
-        await DbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
 
         // Exit edit mode
         editingMessageId = null;
@@ -1963,6 +1993,8 @@ public partial class Home : IDisposable
     {
         if (currentChat == null || currentUser == null || IsCurrentChatGenerating) return;
 
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
+        
         // Create a new branched chat with the same title
         var branchedChat = new Chat
         {
@@ -1974,11 +2006,11 @@ public partial class Home : IDisposable
             OriginalChatId = currentChat.Id
         };
 
-        DbContext.Chats.Add(branchedChat);
-        await DbContext.SaveChangesAsync();
+        dbContext.Chats.Add(branchedChat);
+        await dbContext.SaveChangesAsync();
 
         // Copy all messages up to and including the selected assistant message
-        var messagesToCopy = await DbContext.Messages
+        var messagesToCopy = await dbContext.Messages
             .Where(m => m.ChatId == currentChat.Id && m.CreatedAt <= assistantMessage.CreatedAt)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync();
@@ -1993,10 +2025,10 @@ public partial class Home : IDisposable
                 CreatedAt = originalMessage.CreatedAt,
                 Model = originalMessage.Model
             };
-            DbContext.Messages.Add(copiedMessage);
+            dbContext.Messages.Add(copiedMessage);
         }
 
-        await DbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
         
         // Clear processed content cache
         processedMessageContent.Clear();
@@ -2010,14 +2042,15 @@ public partial class Home : IDisposable
     {
         if (currentChat == null || IsCurrentChatGenerating) return;
 
+        using var dbContext = await DbContextFactory.CreateDbContextAsync();
         // Delete this assistant message and any messages that came after it
-        var messagesToDelete = await DbContext.Messages
+        var messagesToDelete = await dbContext.Messages
             .Where(m => m.ChatId == currentChat.Id && m.CreatedAt >= assistantMessage.CreatedAt)
             .ToListAsync();
 
         if (messagesToDelete.Any())
         {
-            DbContext.Messages.RemoveRange(messagesToDelete);
+            dbContext.Messages.RemoveRange(messagesToDelete);
             
             // Update local messages list
             if (messages != null)
@@ -2030,7 +2063,7 @@ public partial class Home : IDisposable
             }
         }
 
-        await DbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
         
         // Clear processed content cache and update UI
         processedMessageContent.Clear();
