@@ -1,0 +1,11 @@
+/* 4U.chat - Modular CSS Architecture */
+
+/* Core CSS Modules */
+@import 'css/variables.css';  /* CSS custom properties and theme definitions */
+@import 'css/base.css';       /* Reset, typography, and base styles */
+@import 'css/layout.css';     /* App container, sidebar, main content layout */
+@import 'css/components.css'; /* UI components (buttons, inputs, cards, etc.) */
+@import 'css/chat.css';       /* Chat-specific styles (messages, welcome screen) */
+@import 'css/forms.css';      /* Form and authentication styles */
+@import 'css/syntax.css';     /* Code syntax highlighting styles */
+@import 'css/responsive.css'; /* Media queries and responsive styles */

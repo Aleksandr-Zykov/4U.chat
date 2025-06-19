@@ -1,0 +1,16 @@
+@page "/logout"
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Authorization
+@using _4U.chat.Models
+@attribute [AllowAnonymous]
+@inject SignInManager<User> SignInManager
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await SignInManager.SignOutAsync();
+        Navigation.NavigateTo("/login");
+    }
+}

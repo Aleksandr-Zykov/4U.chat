@@ -1,0 +1,589 @@
+@page "/settings"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Identity
+@using _4U.chat.Models
+@using _4U.chat.Data
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@using System.ComponentModel.DataAnnotations
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject UserManager<User> UserManager
+@inject ApplicationDbContext DbContext
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Settings - 4U.chat</PageTitle>
+
+<script>
+    window.showSettingsAlert = (message, type = 'success') => {
+        const alertClass = type === 'error' ? 'alert-error' : 'alert-success';
+        const alertElement = document.querySelector('.settings-alert');
+        
+        if (alertElement) {
+            alertElement.className = `settings-alert ${alertClass}`;
+            alertElement.textContent = message;
+            alertElement.style.display = 'block';
+            alertElement.style.opacity = '1';
+            
+            setTimeout(() => {
+                alertElement.style.opacity = '0';
+                setTimeout(() => {
+                    alertElement.style.display = 'none';
+                }, 300);
+            }, 3000);
+        }
+    };
+
+    window.confirmAction = (message) => {
+        return confirm(message);
+    };
+
+    window.removeTrait = (trait) => {
+        DotNet.invokeMethodAsync('4U.chat', 'RemoveTraitFromClient', trait);
+    };
+</script>
+
+<div class="settings-container">
+    <div class="settings-alert" style="display: none;"></div>
+    
+    <div class="settings-header">
+        <h1>Settings</h1>
+        <button class="back-button" @onclick="GoBack">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back to Chat
+        </button>
+    </div>
+
+    <div class="settings-content-wrapper">
+        <div class="settings-content">
+        <div class="settings-tabs">
+            <button class="tab-button @(activeTab == "main" ? "active" : "")" @onclick='() => SetActiveTab("main")'>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+                Main
+            </button>
+            <button class="tab-button @(activeTab == "customization" ? "active" : "")" @onclick='() => SetActiveTab("customization")'>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+                Customization
+            </button>
+        </div>
+
+        <div class="tab-content">
+            @if (activeTab == "main")
+            {
+                <div class="tab-panel">
+                    <div class="settings-section">
+                        <h3>Profile Information</h3>
+                        <div class="profile-section">
+                            <div class="avatar-section">
+                                <div class="current-avatar">
+                                    @if (!string.IsNullOrEmpty(currentUser?.ProfilePictureData))
+                                    {
+                                        <img src="@currentUser.ProfilePictureData" alt="Profile Picture" class="avatar-img" />
+                                    }
+                                    else
+                                    {
+                                        <div class="avatar-placeholder">@(editName?.Substring(0, 1).ToUpper() ?? "U")</div>
+                                    }
+                                </div>
+                                <div class="avatar-actions">
+                                    <InputFile id="avatarFile" OnChange="HandleAvatarUpload" accept="image/*" style="display: none;" />
+                                    <button type="button" class="avatar-btn" @onclick="TriggerAvatarUpload">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                            <circle cx="12" cy="13" r="4"/>
+                                        </svg>
+                                        Change Avatar
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(currentUser?.ProfilePictureData))
+                                    {
+                                        <button type="button" class="avatar-btn remove" @onclick="RemoveAvatar">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                                <line x1="6" y1="6" x2="18" y2="18"/>
+                                            </svg>
+                                            Remove
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="name-section">
+                                <div class="form-group">
+                                    <label for="displayName">Display Name</label>
+                                    <input type="text" id="displayName" @bind="editName" @bind:event="oninput" class="form-input" placeholder="Your display name" maxlength="100" />
+                                    <small class="form-hint">This is your display name</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Username</label>
+                                    <div class="readonly-field">@(currentUser?.UserName ?? "N/A")</div>
+                                    <small class="form-hint">Username cannot be changed</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>API Configuration</h3>
+                        <div class="form-group">
+                            <label for="openRouterKey">OpenRouter API Key</label>
+                            <div class="api-key-input">
+                                <input type="@(showOpenRouterKey ? "text" : "password")" 
+                                       id="openRouterKey" 
+                                       @bind="editOpenRouterKey" 
+                                       @bind:event="oninput" 
+                                       class="form-input" 
+                                       placeholder="sk-or-..." />
+                                <button type="button" class="toggle-visibility" @onclick="() => showOpenRouterKey = !showOpenRouterKey">
+                                    @if (showOpenRouterKey)
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                                            <line x1="1" y1="1" x2="23" y2="23"/>
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                            <circle cx="12" cy="12" r="3"/>
+                                        </svg>
+                                    }
+                                </button>
+                            </div>
+                            <small class="form-hint">Get your API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a></small>
+                        </div>
+                        <div class="form-group">
+                            <label for="openAiKey">OpenAI API Key</label>
+                            <div class="api-key-input">
+                                <input type="@(showOpenAiKey ? "text" : "password")" 
+                                       id="openAiKey" 
+                                       @bind="editOpenAiKey" 
+                                       @bind:event="oninput" 
+                                       class="form-input" 
+                                       placeholder="sk-..." />
+                                <button type="button" class="toggle-visibility" @onclick="() => showOpenAiKey = !showOpenAiKey">
+                                    @if (showOpenAiKey)
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                                            <line x1="1" y1="1" x2="23" y2="23"/>
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                            <circle cx="12" cy="12" r="3"/>
+                                        </svg>
+                                    }
+                                </button>
+                            </div>
+                            <small class="form-hint">For future OpenAI integration</small>
+                        </div>
+                    </div>
+
+
+                    <div class="settings-section danger-section">
+                        <h3>Danger Zone</h3>
+                        <div class="form-group">
+                            <label>Delete Account</label>
+                            <p class="danger-text">This action cannot be undone. All your chats and data will be permanently deleted.</p>
+                            <button class="delete-account-btn" @onclick="DeleteAccountAsync">
+                                Delete Account
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button class="save-button" @onclick="SaveMainSettingsAsync" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <div class="loading-spinner"></div>
+                            }
+                            Save Changes
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (activeTab == "customization")
+            {
+                <div class="tab-panel">
+                    <div class="settings-section">
+                        <h3>Personalization</h3>
+                        <div class="form-group">
+                            <label for="callMeName">What should 4U Chat call you?</label>
+                            <input type="text" id="callMeName" @bind="editCallMeName" @bind:event="oninput" maxlength="50" class="form-input" placeholder="@(currentUser?.Name ?? currentUser?.UserName ?? "User")" />
+                            <small class="form-hint">@(editCallMeName?.Length ?? 0)/50 characters</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="occupation">What do you do?</label>
+                            <input type="text" id="occupation" @bind="editOccupation" @bind:event="oninput" maxlength="100" class="form-input" placeholder="e.g., Software Developer, Student, Teacher..." />
+                            <small class="form-hint">@(editOccupation?.Length ?? 0)/100 characters</small>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>AI Personality Traits</h3>
+                        <div class="form-group">
+                            <label>What traits should 4U Chat have?</label>
+                            <div class="traits-container">
+                                <div class="preset-traits">
+                                    @foreach (var trait in presetTraits)
+                                    {
+                                        <button class="trait-button @(selectedTraits.Contains(trait) ? "selected" : "")" 
+                                                @onclick="() => ToggleTrait(trait)">
+                                            @trait
+                                        </button>
+                                    }
+                                </div>
+                                <div class="selected-traits">
+                                    @if (selectedTraits.Any())
+                                    {
+                                        <h4>Selected Traits (@selectedTraits.Count/50):</h4>
+                                        <div class="selected-traits-list">
+                                            @foreach (var trait in selectedTraits)
+                                            {
+                                                <span class="selected-trait">
+                                                    @trait
+                                                    <button @onclick="() => RemoveTrait(trait)" title="Remove trait">×</button>
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                <div class="custom-trait-input">
+                                    <input type="text" @bind="newTrait" @bind:event="oninput" @onkeypress="HandleTraitKeyPress" maxlength="100" class="form-input" placeholder="Add custom trait..." />
+                                    <button class="add-trait-btn" @onclick="AddCustomTrait" disabled="@(string.IsNullOrWhiteSpace(newTrait) || selectedTraits.Count >= 50)">
+                                        Add
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Additional Context</h3>
+                        <div class="form-group">
+                            <label for="customPrompt">Anything else 4U Chat should know about you?</label>
+                            <textarea id="customPrompt" @bind="editCustomPrompt" @bind:event="oninput" maxlength="3000" class="form-textarea" placeholder="Share any additional context, preferences, or information that would help 4U Chat provide better responses..." rows="6"></textarea>
+                            <small class="form-hint">@(editCustomPrompt?.Length ?? 0)/3000 characters</small>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button class="save-button" @onclick="SaveCustomizationSettingsAsync" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <div class="loading-spinner"></div>
+                            }
+                            Save Changes
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private User? currentUser;
+    private string activeTab = "main";
+    private bool isLoading = false;
+
+    // Main tab fields
+    private string? editName;
+    private string? editOpenRouterKey;
+    private string? editOpenAiKey;
+    private bool showOpenRouterKey = false;
+    private bool showOpenAiKey = false;
+
+    // Customization tab fields
+    private string? editCallMeName;
+    private string? editOccupation;
+    private string? editCustomPrompt;
+    private string? newTrait = "";
+    private List<string> selectedTraits = new();
+    
+    private readonly List<string> presetTraits = new()
+    {
+        "Friendly", "Witty", "Concise", "Curious", "Empathetic", 
+        "Creative", "Patient", "Professional", "Casual", "Enthusiastic",
+        "Analytical", "Supportive", "Direct", "Detailed", "Humorous"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserData();
+    }
+
+    private async Task LoadUserData()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (authState.User?.Identity?.IsAuthenticated == true)
+        {
+            var userName = authState.User.Identity.Name;
+            currentUser = await UserManager.Users
+                .FirstOrDefaultAsync(u => u.UserName == userName);
+            
+            if (currentUser != null)
+            {
+                // Load main settings
+                editName = currentUser.Name ?? currentUser.UserName; // Fallback to UserName for existing users
+                editOpenRouterKey = currentUser.OpenRouterApiKey;
+                editOpenAiKey = currentUser.OpenAiApiKey;
+
+                // Load customization settings
+                editCallMeName = currentUser.DisplayName ?? currentUser.Name ?? currentUser.UserName;
+                editOccupation = currentUser.Occupation;
+                editCustomPrompt = currentUser.CustomPrompt;
+
+                // Load traits
+                selectedTraits = ParseTraits(currentUser.Traits);
+            }
+        }
+    }
+
+    private List<string> ParseTraits(string? traitsJson)
+    {
+        if (string.IsNullOrEmpty(traitsJson))
+            return new List<string>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(traitsJson) ?? new List<string>();
+        }
+        catch
+        {
+            // Fallback to comma-separated parsing
+            return traitsJson.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(t => t.Trim())
+                            .ToList();
+        }
+    }
+
+    private void SetActiveTab(string tab)
+    {
+        activeTab = tab;
+    }
+
+    private void ToggleTrait(string trait)
+    {
+        if (selectedTraits.Contains(trait))
+        {
+            selectedTraits.Remove(trait);
+        }
+        else if (selectedTraits.Count < 50)
+        {
+            selectedTraits.Add(trait);
+        }
+    }
+
+    private void RemoveTrait(string trait)
+    {
+        selectedTraits.Remove(trait);
+    }
+
+    private async Task HandleTraitKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddCustomTrait();
+        }
+    }
+
+    private async Task AddCustomTrait()
+    {
+        if (!string.IsNullOrWhiteSpace(newTrait) && selectedTraits.Count < 50 && !selectedTraits.Contains(newTrait.Trim()))
+        {
+            selectedTraits.Add(newTrait.Trim());
+            newTrait = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveMainSettingsAsync()
+    {
+        if (currentUser == null) return;
+
+        isLoading = true;
+        try
+        {
+            // Update Name (username cannot be changed)
+            currentUser.Name = editName;
+            currentUser.OpenRouterApiKey = editOpenRouterKey;
+            currentUser.OpenAiApiKey = editOpenAiKey;
+
+            var result = await UserManager.UpdateAsync(currentUser);
+            if (result.Succeeded)
+            {
+                await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Settings saved successfully!", "success");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Failed to save settings. Please try again.", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("showSettingsAlert", $"Error: {ex.Message}", "error");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveCustomizationSettingsAsync()
+    {
+        if (currentUser == null) return;
+
+        isLoading = true;
+        try
+        {
+            currentUser.DisplayName = editCallMeName;
+            currentUser.Occupation = editOccupation;
+            currentUser.CustomPrompt = editCustomPrompt;
+            currentUser.Traits = JsonSerializer.Serialize(selectedTraits);
+
+            var result = await UserManager.UpdateAsync(currentUser);
+            if (result.Succeeded)
+            {
+                await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Customization settings saved successfully!", "success");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Failed to save customization settings. Please try again.", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("showSettingsAlert", $"Error: {ex.Message}", "error");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+
+    private async Task DeleteAccountAsync()
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirmAction", "Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.");
+        if (confirmed && currentUser != null)
+        {
+            var doubleConfirmed = await JSRuntime.InvokeAsync<bool>("confirmAction", "This is your final warning. Your account and all data will be permanently deleted. Are you absolutely sure?");
+            if (doubleConfirmed)
+            {
+                try
+                {
+                    await UserManager.DeleteAsync(currentUser);
+                    Navigation.NavigateTo("/Auth/Logout", true);
+                }
+                catch (Exception ex)
+                {
+                    await JSRuntime.InvokeVoidAsync("showSettingsAlert", $"Failed to delete account: {ex.Message}", "error");
+                }
+            }
+        }
+    }
+
+    private async Task TriggerAvatarUpload()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.querySelector('input[type=file]').click()");
+    }
+
+    private async Task HandleAvatarUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        // Check file size (limit to 5MB)
+        if (file.Size > 5 * 1024 * 1024)
+        {
+            await JSRuntime.InvokeVoidAsync("showSettingsAlert", "File size must be less than 5MB", "error");
+            return;
+        }
+
+        // Check file type
+        if (!file.ContentType.StartsWith("image/"))
+        {
+            await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Please select an image file", "error");
+            return;
+        }
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            
+            var fileBytes = memoryStream.ToArray();
+            var base64String = Convert.ToBase64String(fileBytes);
+            var dataUri = $"data:{file.ContentType};base64,{base64String}";
+            
+            if (currentUser != null)
+            {
+                currentUser.ProfilePictureData = dataUri;
+                var result = await UserManager.UpdateAsync(currentUser);
+                
+                if (result.Succeeded)
+                {
+                    await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Avatar updated successfully!", "success");
+                    StateHasChanged();
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Failed to update avatar. Please try again.", "error");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("showSettingsAlert", $"Error uploading avatar: {ex.Message}", "error");
+        }
+    }
+
+    private async Task RemoveAvatar()
+    {
+        if (currentUser != null)
+        {
+            try
+            {
+                currentUser.ProfilePictureData = null;
+                var result = await UserManager.UpdateAsync(currentUser);
+                
+                if (result.Succeeded)
+                {
+                    await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Avatar removed successfully!", "success");
+                    StateHasChanged();
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("showSettingsAlert", "Failed to remove avatar. Please try again.", "error");
+                }
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("showSettingsAlert", $"Error removing avatar: {ex.Message}", "error");
+            }
+        }
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+}

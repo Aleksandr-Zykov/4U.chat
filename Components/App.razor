@@ -1,0 +1,213 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="4U.chat.styles.css" />
+    <!-- Prism.js CSS for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-dark.min.css" rel="stylesheet" />
+    <!-- KaTeX CSS for LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+    <HeadOutlet />
+</head>
+
+<body>
+    <script>
+        // Function to apply theme
+        function applyThemeFromStorage() {
+            try {
+                const savedTheme = localStorage.getItem('theme');
+                console.log('Applying theme from localStorage:', savedTheme);
+                if (savedTheme === 'light') {
+                    document.body.classList.add('light-theme');
+                    console.log('Applied light theme class to body');
+                } else {
+                    document.body.classList.remove('light-theme');
+                    console.log('Applied dark theme (removed light-theme class)');
+                }
+            } catch (e) {
+                console.log('localStorage not available:', e);
+            }
+        }
+        
+        // Apply theme immediately
+        applyThemeFromStorage();
+        
+        // Also apply theme whenever Blazor finishes navigation
+        if (window.Blazor) {
+            window.Blazor.addEventListener('enhancedload', applyThemeFromStorage);
+        } else {
+            // If Blazor is not ready yet, listen for when it becomes available
+            document.addEventListener('DOMContentLoaded', () => {
+                if (window.Blazor) {
+                    window.Blazor.addEventListener('enhancedload', applyThemeFromStorage);
+                }
+            });
+        }
+    </script>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+    <!-- Prism.js JavaScript for syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <!-- Additional language support -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <!-- KaTeX JavaScript for LaTeX rendering -->
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+    <!-- KaTeX auto-render extension -->
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+    <!-- Error notification system -->
+    <script src="/js/error-notifications.js"></script>
+    
+    <script>
+        // Simple LaTeX rendering function
+        function doLatexRender(container = document) {
+            console.log('doLatexRender called, checking KaTeX...');
+            
+            if (typeof katex === 'undefined') {
+                console.warn('KaTeX not available yet');
+                return false;
+            }
+
+            console.log('KaTeX available, rendering...');
+
+            // Render block LaTeX expressions
+            const blockElements = container.querySelectorAll('.katex-block:not([data-katex-rendered])');
+            console.log(`Found ${blockElements.length} unrendered block LaTeX elements`);
+            
+            blockElements.forEach((element, index) => {
+                try {
+                    const latex = element.getAttribute('data-latex');
+                    console.log(`Rendering block ${index}: ${latex}`);
+                    
+                    if (latex) {
+                        katex.render(latex, element, {
+                            displayMode: true,
+                            throwOnError: false,
+                            strict: false,
+                            trust: false
+                        });
+                        element.setAttribute('data-katex-rendered', 'true');
+                    }
+                } catch (error) {
+                    console.error('Block LaTeX error:', error);
+                    element.innerHTML = `<span style="color: red;">LaTeX Error: ${error.message}</span>`;
+                    element.setAttribute('data-katex-rendered', 'true');
+                }
+            });
+
+            // Render inline LaTeX expressions
+            const inlineElements = container.querySelectorAll('.katex-inline:not([data-katex-rendered])');
+            console.log(`Found ${inlineElements.length} unrendered inline LaTeX elements`);
+            
+            inlineElements.forEach((element, index) => {
+                try {
+                    const latex = element.getAttribute('data-latex');
+                    console.log(`Rendering inline ${index}: ${latex}`);
+                    
+                    if (latex) {
+                        katex.render(latex, element, {
+                            displayMode: false,
+                            throwOnError: false,
+                            strict: false,
+                            trust: false
+                        });
+                        element.setAttribute('data-katex-rendered', 'true');
+                    }
+                } catch (error) {
+                    console.error('Inline LaTeX error:', error);
+                    element.innerHTML = `<span style="color: red;">LaTeX Error: ${error.message}</span>`;
+                    element.setAttribute('data-katex-rendered', 'true');
+                }
+            });
+            
+            return true;
+        }
+
+        // Retry mechanism with proper timeout
+        function initLatexRender(container = document) {
+            let attempts = 0;
+            const maxAttempts = 50;
+            
+            function attemptRender() {
+                attempts++;
+                console.log(`LaTeX render attempt ${attempts}/${maxAttempts}`);
+                
+                if (doLatexRender(container)) {
+                    console.log('LaTeX rendering successful');
+                    return;
+                }
+                
+                if (attempts < maxAttempts) {
+                    setTimeout(attemptRender, 200);
+                } else {
+                    console.error('LaTeX rendering failed after max attempts');
+                }
+            }
+            
+            attemptRender();
+        }
+
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, starting LaTeX...');
+            initLatexRender();
+        });
+
+        // Blazor navigation support
+        if (window.Blazor) {
+            window.Blazor.addEventListener('enhancedload', function() {
+                console.log('Blazor navigation, starting LaTeX...');
+                initLatexRender();
+            });
+        }
+
+        // Global function for Blazor to call
+        window.renderLatex = function(container = document) {
+            console.log('renderLatex called by Blazor');
+            // Try immediate render first
+            if (!doLatexRender(container)) {
+                // If failed, retry with timeout
+                setTimeout(() => initLatexRender(container), 100);
+            }
+        };
+        
+        // Fallback error notification function if external script fails to load
+        if (typeof window.showErrorNotification === 'undefined') {
+            window.showErrorNotification = function(message, type = 'error') {
+                console.error(`[${type.toUpperCase()}] ${message}`);
+                
+                // Try to show a simple alert as fallback
+                if (type === 'error') {
+                    setTimeout(() => {
+                        alert(`Error: ${message}`);
+                    }, 100);
+                }
+            };
+            
+            window.showApiKeyError = function() {
+                window.showErrorNotification('OpenRouter API key is missing or invalid. Please check your settings.', 'error');
+            };
+            
+            window.showRateLimit = function() {
+                window.showErrorNotification('Rate limit reached. Please wait a moment before sending another message.', 'warning');
+            };
+            
+            window.showNetworkError = function() {
+                window.showErrorNotification('Network connection issue. Please check your internet connection.', 'error');
+            };
+        }
+    </script>
+</body>
+
+</html>
