@@ -855,6 +855,26 @@ public partial class Home : ComponentBase, IDisposable
             if (!isDisposed)
             {
                 await ForceStateHasChanged();
+                
+                // Restore chat selection after re-render
+                if (CurrentChatId.HasValue && !isPrerendering)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(50); // Small delay to ensure DOM is updated
+                        if (!isDisposed)
+                        {
+                            try
+                            {
+                                await JSRuntime.InvokeVoidAsync("setActiveChatItem", disposalTokenSource.Token, CurrentChatId.Value);
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Failed to restore chat selection after filter: {ex.Message}");
+                            }
+                        }
+                    });
+                }
             }
         }
         catch (InvalidOperationException ex)
