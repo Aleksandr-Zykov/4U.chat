@@ -2,9 +2,11 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.WebUtilities
 @using _4U.chat.Services
+@using Microsoft.AspNetCore.Components.Authorization
 @attribute [AllowAnonymous]
 @layout Layout.BlankLayout
 @inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Register - 4U.chat</PageTitle>
@@ -55,8 +57,16 @@
 @code {
     private string errorMessage = string.Empty;
     
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        // Check if user is already authenticated
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo("/", replace: true);
+            return;
+        }
+        
         var uri = new Uri(Navigation.Uri);
         var query = QueryHelpers.ParseQuery(uri.Query);
         
