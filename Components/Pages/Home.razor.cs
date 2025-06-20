@@ -57,6 +57,8 @@ public partial class Home : ComponentBase, IDisposable
     private readonly HashSet<int> expandedThinkingSections = new();
     private DateTime lastStateChangedTime = DateTime.MinValue;
     private const int StateChangedThrottleMs = 50; // Minimum time between StateHasChanged calls
+    private bool isModelLoaded = false; // Track if model selection has been loaded from localStorage
+    private bool isChatLoaded = true; // Track if chat data has been loaded (true by default for welcome screen)
     private bool isWebSearchEnabled = false;
     private DotNetObjectReference<Home>? citationHandlerReference;
     
@@ -77,8 +79,9 @@ public partial class Home : ComponentBase, IDisposable
     { 
         get 
         {
-            // Always return the most current value without relying on cache
-            var actualChatId = ChatId ?? currentChat?.Id;
+            // Prioritize currentChat?.Id over ChatId parameter to handle navigation timing issues
+            // This ensures streaming UI works correctly during chat transitions (especially for branched chats)
+            var actualChatId = currentChat?.Id ?? ChatId;
             
             // Update cache if it's different (for debugging/tracking purposes)
             if (cachedCurrentChatId != actualChatId)
@@ -385,6 +388,12 @@ public partial class Home : ComponentBase, IDisposable
             
             if (isDisposed) return;
             
+            // Set loading state immediately if we have a ChatId parameter to prevent flash
+            if (ChatId.HasValue)
+            {
+                isChatLoaded = false;
+            }
+            
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
             if (authState.User.Identity?.IsAuthenticated == true)
             {
@@ -486,6 +495,9 @@ public partial class Home : ComponentBase, IDisposable
             // Only handle parameter changes if they come from actual navigation (not our history.replaceState)
             if (ChatId.HasValue && currentChat?.Id != ChatId.Value)
             {
+                // Set loading state immediately to prevent flash
+                isChatLoaded = false;
+                
                 // This is a real navigation (e.g., browser back/forward, direct URL, etc.)
                 await SelectChat(ChatId.Value, shouldNavigate: false);
                 
@@ -513,6 +525,9 @@ public partial class Home : ComponentBase, IDisposable
                 messages = null;
                 processedMessageContent.Clear();
                 cachedCurrentChatId = null; // Reset cache tracking
+                
+                // Mark as loaded since we're going to welcome screen
+                isChatLoaded = true;
                 if (!isDisposed)
                 {
                     await ForceStateHasChanged();
@@ -697,6 +712,9 @@ public partial class Home : ComponentBase, IDisposable
         // If we're already on this chat, don't do anything
         if (currentChat?.Id == chatId) return;
         
+        // Set loading state to prevent flash
+        isChatLoaded = false;
+        
         // Reset cache tracking when selecting a new chat
         cachedCurrentChatId = null;
         
@@ -792,6 +810,14 @@ public partial class Home : ComponentBase, IDisposable
             
             // Background streaming service handles continuation automatically
         }
+        else
+        {
+            // Chat not found - clear current state
+            messages = null;
+        }
+        
+        // Mark chat as loaded (whether found or not) to prevent loading state flash
+        isChatLoaded = true;
     }
 
     private async Task CreateNewChat()
@@ -815,6 +841,9 @@ public partial class Home : ComponentBase, IDisposable
         currentChat = null;
         messages = null;
         processedMessageContent.Clear();
+        
+        // Mark as loaded since we're going to welcome screen
+        isChatLoaded = true;
         
         if (!isDisposed)
         {
@@ -1081,7 +1110,8 @@ public partial class Home : ComponentBase, IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"Started background streaming for chat {currentChat.Id}, message {assistantMessage.Id}");
             _lastMessageUpdate = DateTime.UtcNow;
-            await InvokeAsync(StateHasChanged);
+            // Force immediate UI update to show stop button and thinking animation
+            await ForceStateHasChanged();
         }
         else
         {
@@ -1105,7 +1135,7 @@ public partial class Home : ComponentBase, IDisposable
             updateDbContext.Update(assistantMessage);
             await updateDbContext.SaveChangesAsync();
             
-            await InvokeAsync(StateHasChanged);
+            await ForceStateHasChanged();
         }
     }
     
@@ -1223,14 +1253,33 @@ public partial class Home : ComponentBase, IDisposable
         if (isDisposed || isPrerendering) return;
         
         isDarkTheme = !isDarkTheme;
-        await ApplyTheme();
         
+        // Apply theme and save to localStorage atomically to prevent race conditions
+        await ApplyThemeAndSave();
+    }
+    
+    private async Task ApplyThemeAndSave()
+    {
         if (isDisposed || isPrerendering) return;
         
-        // Save theme preference
+        var themeValue = isDarkTheme ? "dark" : "light";
+        
         try
         {
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", disposalTokenSource.Token, "theme", isDarkTheme ? "dark" : "light");
+            // Save to localStorage first, then apply to DOM to ensure consistency
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", disposalTokenSource.Token, "theme", themeValue);
+            
+            // Apply theme to DOM immediately after saving
+            if (isDarkTheme)
+            {
+                await JSRuntime.InvokeVoidAsync("document.body.classList.remove", disposalTokenSource.Token, "light-theme");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("document.body.classList.add", disposalTokenSource.Token, "light-theme");
+            }
+            
+            await JSRuntime.InvokeVoidAsync("console.log", disposalTokenSource.Token, $"Theme toggled and saved: {themeValue}");
         }
         catch (OperationCanceledException)
         {
@@ -1240,9 +1289,11 @@ public partial class Home : ComponentBase, IDisposable
         {
             // JS not available during prerendering
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore if localStorage is not available
+            // If localStorage save fails, revert the theme state to maintain consistency
+            isDarkTheme = !isDarkTheme;
+            System.Diagnostics.Debug.WriteLine($"Theme toggle failed: {ex.Message}");
         }
     }
     
@@ -1252,22 +1303,30 @@ public partial class Home : ComponentBase, IDisposable
         
         try
         {
+            // Wait a small amount to ensure any pending localStorage writes are complete
+            await Task.Delay(50, disposalTokenSource.Token);
+            
             var savedTheme = await JSRuntime.InvokeAsync<string>("localStorage.getItem", disposalTokenSource.Token, "theme");
             var shouldBeLight = savedTheme == "light";
+            
+            // Update component state to match localStorage
+            isDarkTheme = !shouldBeLight;
             
             // Apply theme to body (for navigation scenarios)
             if (shouldBeLight)
             {
                 await JSRuntime.InvokeVoidAsync("document.body.classList.add", disposalTokenSource.Token, "light-theme");
-                isDarkTheme = false;
             }
             else
             {
                 await JSRuntime.InvokeVoidAsync("document.body.classList.remove", disposalTokenSource.Token, "light-theme");
-                isDarkTheme = true;
             }
             
             await JSRuntime.InvokeVoidAsync("console.log", disposalTokenSource.Token, $"EnsureThemeApplied - applied theme: {(shouldBeLight ? "light" : "dark")}");
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposed, ignore
         }
         catch (NotSupportedException)
         {
@@ -1373,6 +1432,11 @@ public partial class Home : ComponentBase, IDisposable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"LoadModelSelection error: {ex.Message}");
+        }
+        finally
+        {
+            // Mark model as loaded regardless of success/failure to prevent flash
+            isModelLoaded = true;
         }
     }
     
@@ -2141,6 +2205,9 @@ public partial class Home : ComponentBase, IDisposable
         StateHasChanged();
         
         await SelectChat(branchedChat.Id, shouldNavigate: true);
+        
+        // Force immediate UI update to ensure streaming state is properly reflected
+        await ForceStateHasChanged();
     }
 
     private async Task RetryAssistantMessage(Message assistantMessage)
