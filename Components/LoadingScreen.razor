@@ -1,0 +1,32 @@
+@if (Show)
+{
+    <div class="loading-screen-overlay @(FullScreen ? "fullscreen" : "")">
+        <div class="loading-screen-content">
+            <div class="loading-spinner-container">
+                <div class="loading-spinner"></div>
+                <div class="loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+            
+            @if (!string.IsNullOrEmpty(Message))
+            {
+                <div class="loading-message">@Message</div>
+            }
+            
+            @if (!string.IsNullOrEmpty(SubMessage))
+            {
+                <div class="loading-submessage">@SubMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; } = false;
+    [Parameter] public bool FullScreen { get; set; } = true;
+    [Parameter] public string? Message { get; set; } = "Loading...";
+    [Parameter] public string? SubMessage { get; set; }
+}
