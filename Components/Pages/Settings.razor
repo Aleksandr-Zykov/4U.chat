@@ -48,6 +48,12 @@
 </script>
 
 <div class="settings-container">
+    <!-- Loading Screen for Settings -->
+    <LoadingScreen Show="@isInitializing" 
+                   FullScreen="false" 
+                   Message="Loading Settings..." 
+                   SubMessage="Retrieving your profile and preferences" />
+    
     <div class="settings-alert" style="display: none;"></div>
     
     <div class="settings-header">
@@ -60,9 +66,11 @@
         </button>
     </div>
 
-    <div class="settings-content-wrapper">
-        <div class="settings-content">
-        <div class="settings-tabs">
+    @if (!isInitializing)
+    {
+        <div class="settings-content-wrapper">
+            <div class="settings-content">
+            <div class="settings-tabs">
             <button class="tab-button @(activeTab == "main" ? "active" : "")" @onclick='() => SetActiveTab("main")'>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
@@ -295,12 +303,14 @@
         </div>
         </div>
     </div>
+    }
 </div>
 
 @code {
     private User? currentUser;
     private string activeTab = "main";
     private bool isLoading = false;
+    private bool isInitializing = true;
 
     // Main tab fields
     private string? editName;
@@ -330,28 +340,36 @@
 
     private async Task LoadUserData()
     {
-        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        if (authState.User?.Identity?.IsAuthenticated == true)
+        try
         {
-            var userName = authState.User.Identity.Name;
-            currentUser = await UserManager.Users
-                .FirstOrDefaultAsync(u => u.UserName == userName);
-            
-            if (currentUser != null)
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            if (authState.User?.Identity?.IsAuthenticated == true)
             {
-                // Load main settings
-                editName = currentUser.Name ?? currentUser.UserName; // Fallback to UserName for existing users
-                editOpenRouterKey = currentUser.OpenRouterApiKey;
-                editOpenAiKey = currentUser.OpenAiApiKey;
+                var userName = authState.User.Identity.Name;
+                currentUser = await UserManager.Users
+                    .FirstOrDefaultAsync(u => u.UserName == userName);
+                
+                if (currentUser != null)
+                {
+                    // Load main settings
+                    editName = currentUser.Name ?? currentUser.UserName; // Fallback to UserName for existing users
+                    editOpenRouterKey = currentUser.OpenRouterApiKey;
+                    editOpenAiKey = currentUser.OpenAiApiKey;
 
-                // Load customization settings
-                editCallMeName = currentUser.Name ?? currentUser.UserName;
-                editOccupation = currentUser.Occupation;
-                editCustomPrompt = currentUser.CustomPrompt;
+                    // Load customization settings
+                    editCallMeName = currentUser.Name ?? currentUser.UserName;
+                    editOccupation = currentUser.Occupation;
+                    editCustomPrompt = currentUser.CustomPrompt;
 
-                // Load traits
-                selectedTraits = ParseTraits(currentUser.Traits);
+                    // Load traits
+                    selectedTraits = ParseTraits(currentUser.Traits);
+                }
             }
+        }
+        finally
+        {
+            isInitializing = false;
+            StateHasChanged();
         }
     }
 

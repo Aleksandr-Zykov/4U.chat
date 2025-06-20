@@ -1852,43 +1852,46 @@ public partial class Home : ComponentBase, IDisposable
             
             var isCurrentlyStreaming = BackgroundStreamingService.IsStreamingActive(currentChat.Id);
             
-            // Check for message updates in database (both during streaming and after completion)
-            var lastMessage = messages?.LastOrDefault(m => m.Role == "assistant");
-            if (lastMessage != null)
+            // Only check for database updates when actively streaming
+            if (isCurrentlyStreaming)
             {
-                using var dbContext = await DbContextFactory.CreateDbContextAsync();
-                // Reload the message from database to get latest content
-                await dbContext.Entry(lastMessage).ReloadAsync();
-                
-                // Check if content has changed
-                var newUpdateTime = lastMessage.UpdatedAt;
-                if (newUpdateTime > _lastMessageUpdate)
+                var lastMessage = messages?.LastOrDefault(m => m.Role == "assistant");
+                if (lastMessage != null)
                 {
-                    _lastMessageUpdate = newUpdateTime;
+                    using var dbContext = await DbContextFactory.CreateDbContextAsync();
+                    // Reload the message from database to get latest content
+                    await dbContext.Entry(lastMessage).ReloadAsync();
                     
-                    // Invalidate processed content cache
-                    processedMessageContent.Remove(lastMessage.Id);
-                    
-                    // Update UI
-                    if (!isDisposed)
+                    // Check if content has changed
+                    var newUpdateTime = lastMessage.UpdatedAt;
+                    if (newUpdateTime > _lastMessageUpdate)
                     {
-                        await InvokeAsync(StateHasChanged);
+                        _lastMessageUpdate = newUpdateTime;
+                        
+                        // Invalidate processed content cache
+                        processedMessageContent.Remove(lastMessage.Id);
+                        
+                        // Update UI
+                        if (!isDisposed)
+                        {
+                            await InvokeAsync(StateHasChanged);
+                        }
+                        
+                        System.Diagnostics.Debug.WriteLine($"Updated streaming content for message {lastMessage.Id} - Length: {lastMessage.Content?.Length ?? 0}, IsStreaming: {isCurrentlyStreaming}");
                     }
-                    
-                    System.Diagnostics.Debug.WriteLine($"Updated streaming content for message {lastMessage.Id} - Length: {lastMessage.Content?.Length ?? 0}, IsStreaming: {isCurrentlyStreaming}");
                 }
-                // If streaming just completed, force a final UI update to ensure stop button disappears
-                else if (!isCurrentlyStreaming && DateTime.UtcNow - _lastMessageUpdate < TimeSpan.FromSeconds(2))
+            }
+            // If streaming just completed, force a final UI update to ensure stop button disappears
+            else if (!isCurrentlyStreaming && DateTime.UtcNow - _lastMessageUpdate < TimeSpan.FromSeconds(2))
+            {
+                System.Diagnostics.Debug.WriteLine($"Forcing final UI update after streaming completion for chat {currentChat.Id}");
+                
+                // Trigger syntax highlighting when streaming completes
+                shouldHighlightCode = true;
+                
+                if (!isDisposed)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Forcing final UI update after streaming completion for chat {currentChat.Id}");
-                    
-                    // Trigger syntax highlighting when streaming completes
-                    shouldHighlightCode = true;
-                    
-                    if (!isDisposed)
-                    {
-                        await InvokeAsync(StateHasChanged);
-                    }
+                    await InvokeAsync(StateHasChanged);
                 }
             }
         }
@@ -2611,6 +2614,42 @@ public partial class Home : ComponentBase, IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"Failed to continue generation for message {assistantMessage.Id}");
         }
+    }
+    
+    private string GetLoadingMessage()
+    {
+        if (isInitializing)
+        {
+            return "Initializing 4U Chat...";
+        }
+        else if (!isModelLoaded)
+        {
+            return "Loading AI Models...";
+        }
+        else if (!isChatLoaded)
+        {
+            return "Loading Chat...";
+        }
+        
+        return "Loading...";
+    }
+    
+    private string GetLoadingSubMessage()
+    {
+        if (isInitializing)
+        {
+            return "Setting up your personalized chat experience";
+        }
+        else if (!isModelLoaded)
+        {
+            return "Preparing available AI models";
+        }
+        else if (!isChatLoaded)
+        {
+            return "Retrieving your conversation history";
+        }
+        
+        return "Please wait while we prepare your content";
     }
 
     public void Dispose()
