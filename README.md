@@ -1,5 +1,5 @@
 <div align="center">
-  ![4U Image](https://github.com/Aleksandr-Zykov/4U.chat/raw/f018a31e0197bdd3d9bea309308a154721d28c46/wwwroot/4U%20Image.png)
+  <img src="https://raw.githubusercontent.com/Aleksandr-Zykov/4U.chat/refs/heads/main/wwwroot/4U%20Image.png" alt="4U Image" />
   <p><em>A modern, feature-rich AI chat application built for seamless interaction with multiple language models</em></p>
 </div>
 
