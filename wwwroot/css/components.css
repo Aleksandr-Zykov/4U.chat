@@ -224,6 +224,15 @@ body.light-theme .search-box {
     font-weight: 600;
 }
 
+.chat-title .chat-name-static,
+.chat-title .chat-name-animating {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+    width: 100%;
+}
+
 body.light-theme .chat-title {
     color: #b8677c;
 }
