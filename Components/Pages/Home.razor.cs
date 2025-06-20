@@ -1055,16 +1055,6 @@ public partial class Home : ComponentBase, IDisposable
                 System.Diagnostics.Debug.WriteLine($"Failed to show API key error notification: {ex.Message}");
             }
             
-            // Also show error message in the legacy way as fallback
-            try
-            {
-                await JSRuntime.InvokeVoidAsync("displayErrorMessage", disposalTokenSource.Token, "Please set your OpenRouter API key in Settings to use AI chat.");
-            }
-            catch
-            {
-                // Ignore errors with legacy error display
-            }
-            
             return;
         }
         
@@ -2427,9 +2417,9 @@ public partial class Home : ComponentBase, IDisposable
         prompt.Add("You are 4U Chat, an AI assistant designed to be helpful, accurate, and engaging.");
         
         // User personalization
-        if (!string.IsNullOrEmpty(user.DisplayName))
+        if (!string.IsNullOrEmpty(user.Name))
         {
-            prompt.Add($"The user prefers to be called '{user.DisplayName}'.");
+            prompt.Add($"The user prefers to be called '{user.Name}'.");
         }
         
         if (!string.IsNullOrEmpty(user.Occupation))

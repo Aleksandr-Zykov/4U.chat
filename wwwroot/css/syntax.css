@@ -33,10 +33,18 @@ code:not(pre code) {
     color: var(--syntax-text);
 }
 
+/* Prism.js token base */
+.token {
+    color: var(--syntax-text);
+}
+
 /* Keywords (if, else, function, class, return, etc.) */
 .hljs-keyword,
 .hljs-built_in,
-.hljs-selector-tag {
+.hljs-selector-tag,
+.token.keyword,
+.token.builtin,
+.token.important {
     color: var(--syntax-keyword);
     font-weight: 500;
 }
@@ -44,26 +52,36 @@ code:not(pre code) {
 /* Strings and literals */
 .hljs-string,
 .hljs-title.hljs-class_,
-.hljs-literal {
+.hljs-literal,
+.token.string,
+.token.char,
+.token.attr-value {
     color: var(--syntax-string);
 }
 
 /* Comments */
 .hljs-comment,
-.hljs-quote {
+.hljs-quote,
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
     color: var(--syntax-comment);
     font-style: italic;
 }
 
 /* Numbers */
-.hljs-number {
+.hljs-number,
+.token.number {
     color: var(--syntax-number);
 }
 
 /* Functions and methods */
 .hljs-title.function_,
 .hljs-function,
-.hljs-method {
+.hljs-method,
+.token.function,
+.token.function-name {
     color: var(--syntax-function);
     font-weight: 500;
 }
@@ -71,20 +89,26 @@ code:not(pre code) {
 /* Variables and parameters */
 .hljs-variable,
 .hljs-params,
-.hljs-attr {
+.hljs-attr,
+.token.property,
+.token.attr-name {
     color: var(--syntax-variable);
 }
 
 /* Operators */
 .hljs-operator,
-.hljs-punctuation {
+.hljs-punctuation,
+.token.punctuation,
+.token.operator {
     color: var(--syntax-operator);
 }
 
 /* Types and classes */
 .hljs-type,
 .hljs-class,
-.hljs-title.class_ {
+.hljs-title.class_,
+.token.class-name,
+.token.type-annotation {
     color: var(--syntax-type);
     font-weight: 500;
 }
