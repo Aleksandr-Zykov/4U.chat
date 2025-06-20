@@ -1036,7 +1036,7 @@
         
         @if (CurrentChatId.HasValue && (currentChat != null || isInitializing))
         {
-            @if (currentChat != null)
+            @if (currentChat != null && isChatLoaded)
             {
                 <div class="chat-header">
                     <h3>
@@ -1051,7 +1051,7 @@
                     </h3>
                 </div>
             }
-            else
+            else if (currentChat != null && !isChatLoaded)
             {
                 <!-- Loading state while chat is being loaded -->
                 <div class="chat-header">
@@ -1060,8 +1060,17 @@
                     </h3>
                 </div>
             }
+            else if (currentChat == null)
+            {
+                <!-- Loading state when chat hasn't been loaded from database yet -->
+                <div class="chat-header">
+                    <h3>
+                        <span class="chat-name-static">Loading...</span>
+                    </h3>
+                </div>
+            }
             
-            @if (currentChat != null)
+            @if (currentChat != null && isChatLoaded)
             {
                 <div class="chat-area">
                     <div class="messages-container">
@@ -1296,7 +1305,7 @@
                                 <div class="input-controls-left">
                                     <div class="model-selector-container">
                                         <button class="model-selector-button" @onclick="ToggleModelSelector">
-                                            <span class="model-name">@GetModelDisplayName(selectedModel)</span>
+                                            <span class="model-name">@(isModelLoaded ? GetModelDisplayName(selectedModel) : "Loading...")</span>
                                             <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6,9 12,15 18,9"></polyline>
                                             </svg>
@@ -1745,7 +1754,7 @@
                                 <div class="input-controls-left">
                                     <div class="model-selector-container">
                                         <button class="model-selector-button" @onclick="ToggleModelSelector">
-                                            <span class="model-name">@GetModelDisplayName(selectedModel)</span>
+                                            <span class="model-name">@(isModelLoaded ? GetModelDisplayName(selectedModel) : "Loading...")</span>
                                             <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                                 <polyline points="6,9 12,15 18,9"></polyline>
                                             </svg>
