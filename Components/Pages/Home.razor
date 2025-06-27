@@ -1,6 +1,7 @@
 @page "/"
 @page "/chat/{chatId:int?}"
 @using Microsoft.AspNetCore.Authorization
+@using _4U.chat.Services
 @attribute [Authorize]
 @rendermode InteractiveServer
 
@@ -1119,18 +1120,20 @@
                                                 <div class="message-attachments">
                                                     @foreach (var attachment in message.Attachments)
                                                     {
-                                                        <div class="message-attachment">
-                                                            <span class="attachment-icon">@((MarkupString)GetAttachmentIcon(attachment.Type))</span>
-                                                            <span class="attachment-name">@attachment.FileName</span>
-                                                            @if (attachment.Type == _4U.chat.Models.AttachmentType.Image)
-                                                            {
-                                                                <span class="attachment-type">Image</span>
-                                                            }
-                                                            else
-                                                            {
+                                                        @if (attachment.Type == _4U.chat.Models.AttachmentType.Image)
+                                                        {
+                                                            <div class="message-attachment image-attachment">
+                                                                <img src="data:@(attachment.ContentType);base64,@(attachment.Base64Data)" alt="@attachment.FileName" />
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="message-attachment">
+                                                                <span class="attachment-icon">@((MarkupString)GetAttachmentIcon(attachment.Type))</span>
+                                                                <span class="attachment-name">@attachment.FileName</span>
                                                                 <span class="attachment-type">PDF</span>
-                                                            }
-                                                        </div>
+                                                            </div>
+                                                        }
                                                     }
                                                 </div>
                                             }
@@ -1325,7 +1328,7 @@
                                                                  @onclick="async () => await SelectModel(model.Id)" 
                                                                  title="@(!model.IsActive ? model.InactiveReason : "")">
                                                                 <div class="model-icon">
-                                                                    @((MarkupString)model.ProviderIcon)
+                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
                                                                 </div>
                                                                 <div class="model-info">
                                                                     <div class="model-title">@model.Name</div>
@@ -1403,7 +1406,7 @@
                                                                             <!-- Card Header -->
                                                                             <div class="model-card-header">
                                                                                 <div class="model-icon">
-                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
                                                                                 </div>
                                                                                 <div class="model-card-provider">@model.Provider</div>
                                                                                 <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
@@ -1493,7 +1496,7 @@
                                                                             <!-- Card Header -->
                                                                             <div class="model-card-header">
                                                                                 <div class="model-icon">
-                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
                                                                                 </div>
                                                                                 <div class="model-card-provider">@model.Provider</div>
                                                                                 <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
@@ -1774,7 +1777,7 @@
                                                                  @onclick="async () => await SelectModel(model.Id)" 
                                                                  title="@(!model.IsActive ? model.InactiveReason : "")">
                                                                 <div class="model-icon">
-                                                                    @((MarkupString)model.ProviderIcon)
+                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
                                                                 </div>
                                                                 <div class="model-info">
                                                                     <div class="model-title">@model.Name</div>
@@ -1852,7 +1855,7 @@
                                                                             <!-- Card Header -->
                                                                             <div class="model-card-header">
                                                                                 <div class="model-icon">
-                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
                                                                                 </div>
                                                                                 <div class="model-card-provider">@model.Provider</div>
                                                                                 <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
@@ -1942,7 +1945,7 @@
                                                                             <!-- Card Header -->
                                                                             <div class="model-card-header">
                                                                                 <div class="model-icon">
-                                                                                    @((MarkupString)model.ProviderIcon)
+                                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
                                                                                 </div>
                                                                                 <div class="model-card-provider">@model.Provider</div>
                                                                                 <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"

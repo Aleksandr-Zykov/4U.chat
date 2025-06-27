@@ -19,6 +19,7 @@ public partial class Home : ComponentBase, IDisposable
     [Inject] private IDbContextFactory<ApplicationDbContext> DbContextFactory { get; set; } = default!;
     [Inject] private UserManager<User> UserManager { get; set; } = default!;
     [Inject] private OpenRouterService OpenRouterService { get; set; } = default!;
+    [Inject] private GoogleService GoogleService { get; set; } = default!;
     [Inject] private NavigationManager Navigation { get; set; } = default!;
     [Inject] private AuthenticationStateProvider AuthenticationStateProvider { get; set; } = default!;
     [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
@@ -69,7 +70,6 @@ public partial class Home : ComponentBase, IDisposable
     // File attachment state
     private List<MessageAttachment> currentAttachments = new();
     private InputFile? fileInputComponent;
-    private bool showFileDropZone = false;
     
     // Streaming state polling
     private Timer? _streamingUpdateTimer;
@@ -196,7 +196,7 @@ public partial class Home : ComponentBase, IDisposable
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public string Provider { get; set; } = string.Empty;
-        public string ProviderIcon { get; set; } = string.Empty;
+        
         public bool IsActive { get; set; } = true;
         public string InactiveReason { get; set; } = string.Empty;
         public string[] RequiredProviders { get; set; } = Array.Empty<string>();
@@ -215,7 +215,6 @@ public partial class Home : ComponentBase, IDisposable
                     Name = config.DisplayName,
                     Description = config.Description,
                     Provider = config.Provider,
-                    ProviderIcon = config.ProviderIcon,
                     IsActive = config.IsActive,
                     InactiveReason = config.InactiveReason
                 })
@@ -998,7 +997,7 @@ public partial class Home : ComponentBase, IDisposable
         await AutoResizeTextarea();
         
         // Generate AI response
-        await StartGeneration();
+        await StartGeneration(content);
         
         // Update URL without full navigation to avoid interrupting streaming (only for new chats)
         if (isNewChat && currentChat != null && !isPrerendering)
@@ -1029,23 +1028,112 @@ public partial class Home : ComponentBase, IDisposable
         await ForceStateHasChanged();
     }
     
-    private async Task StartGeneration()
+    private async Task StartGeneration(string userMessageContent)
     {
         if (currentChat == null || messages == null) return;
+
+        var isImageGen = OpenRouterService.IsImageGenerationModel(selectedModel);
+
+        if (isImageGen)
+        {
+            await GenerateImageAsync(userMessageContent);
+        }
+        else
+        {
+            await GenerateTextAsync();
+        }
+    }
+
+    private async Task GenerateImageAsync(string userMessageContent)
+    {
+        if (currentChat == null || messages == null || currentUser == null) return;
+
+        var apiKey = currentUser.GoogleAiApiKey;
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("showErrorNotification", "Google AI Studio API key is missing. Please add it in Settings.", "error");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to show API key error notification: {ex.Message}");
+            }
+            return;
+        }
+
+        var assistantMessage = new Message
+        {
+            Role = "assistant",
+            Content = "*Generating image...*",
+            ChatId = currentChat.Id,
+            CreatedAt = DateTime.UtcNow,
+            Model = GetActualModelId(selectedModel)
+        };
+
+        // Scope the first context here
+        using (var dbContext = await DbContextFactory.CreateDbContextAsync())
+        {
+            dbContext.Messages.Add(assistantMessage);
+            await dbContext.SaveChangesAsync();
+        }
         
+        messages.Add(assistantMessage);
+        await InvokeAsync(StateHasChanged); // Use InvokeAsync for safety
+
+        try
+        {
+            var imageBase64 = await GoogleService.GenerateImageAsync(GetActualModelId(selectedModel), userMessageContent, apiKey);
+            
+            var attachment = new MessageAttachment
+            {
+                FileName = $"generated_image_{DateTime.UtcNow:yyyyMMddHHmmss}.png",
+                ContentType = "image/png",
+                Base64Data = imageBase64,
+                FileSize = imageBase64.Length, // Approximate size, good enough for display
+                Type = AttachmentType.Image,
+                UploadedAt = DateTime.UtcNow
+            };
+
+            assistantMessage.Attachments = new List<MessageAttachment> { attachment };
+            assistantMessage.Content = ""; // Clear the "Generating..." message
+        }
+        catch (Exception ex)
+        {
+            var fullErrorMessage = ex.ToString();
+            assistantMessage.Content = $"🚨 **Image Generation Failed**\n\n```\n{fullErrorMessage}\n```";
+            // Force UI update from within the catch block
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            assistantMessage.UpdatedAt = DateTime.UtcNow;
+            // Use a new, clean context in the finally block
+            using (var updateDbContext = await DbContextFactory.CreateDbContextAsync())
+            {
+                updateDbContext.Update(assistantMessage);
+                await updateDbContext.SaveChangesAsync();
+            }
+            // Final UI update
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task GenerateTextAsync()
+    {
+        if (currentChat == null || messages == null || currentUser == null) return;
+
         // Force cache refresh to ensure CurrentChatId is synchronized
         var previousCachedId = cachedCurrentChatId;
         cachedCurrentChatId = currentChat.Id;
         if (previousCachedId != currentChat.Id)
         {
-            System.Diagnostics.Debug.WriteLine($"StartGeneration: Corrected cached chat ID from {previousCachedId} to {currentChat.Id}");
+            System.Diagnostics.Debug.WriteLine($"GenerateTextAsync: Corrected cached chat ID from {previousCachedId} to {currentChat.Id}");
         }
-        
-        // Check API key before starting any streaming UI
-        var apiKey = currentUser?.OpenRouterApiKey;
+
+        var apiKey = currentUser.OpenRouterApiKey;
         if (string.IsNullOrEmpty(apiKey))
         {
-            // Show notification for immediate feedback
             try
             {
                 await JSRuntime.InvokeVoidAsync("showApiKeyError", disposalTokenSource.Token);
@@ -1054,11 +1142,9 @@ public partial class Home : ComponentBase, IDisposable
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to show API key error notification: {ex.Message}");
             }
-            
             return;
         }
-        
-        // Create placeholder assistant message
+
         var assistantMessage = new Message
         {
             Role = "assistant",
@@ -1067,23 +1153,20 @@ public partial class Home : ComponentBase, IDisposable
             CreatedAt = DateTime.UtcNow,
             Model = GetActualModelId(selectedModel)
         };
-        
+
         using var dbContext = await DbContextFactory.CreateDbContextAsync();
         dbContext.Messages.Add(assistantMessage);
         await dbContext.SaveChangesAsync();
         messages.Add(assistantMessage);
-        
-        // Prepare chat messages for the API
+
         var chatMessages = messages
             .Where(m => m.Id != assistantMessage.Id)
             .OrderBy(m => m.CreatedAt)
             .Select(m => ConvertToOpenRouterMessage(m))
             .ToList();
-        
-        // Build system prompt from user personalization
+
         var systemPrompt = await BuildSystemPrompt();
-        
-        // Start background streaming
+
         var success = await BackgroundStreamingService.StartStreamingAsync(
             currentChat.Id,
             assistantMessage.Id,
@@ -1095,19 +1178,17 @@ public partial class Home : ComponentBase, IDisposable
             isWebSearchEnabled,
             isWebSearchEnabled ? new WebSearchOptions() : null
         );
-        
+
         if (success)
         {
             System.Diagnostics.Debug.WriteLine($"Started background streaming for chat {currentChat.Id}, message {assistantMessage.Id}");
             _lastMessageUpdate = DateTime.UtcNow;
-            // Force immediate UI update to show stop button and thinking animation
             await ForceStateHasChanged();
         }
         else
         {
             System.Diagnostics.Debug.WriteLine($"Failed to start background streaming for chat {currentChat.Id}");
-            
-            // Show styled error message to user
+
             assistantMessage.Content = "🚨 **Generation Failed**\n\n" +
                 "Failed to start AI generation. This could be due to:\n\n" +
                 "• Invalid or missing OpenRouter API key\n" +
@@ -1120,11 +1201,11 @@ public partial class Home : ComponentBase, IDisposable
                 "4. Wait a moment and try again\n\n" +
                 "*If the problem persists, please check the OpenRouter service status.*";
             assistantMessage.UpdatedAt = DateTime.UtcNow;
-            
+
             using var updateDbContext = await DbContextFactory.CreateDbContextAsync();
             updateDbContext.Update(assistantMessage);
             await updateDbContext.SaveChangesAsync();
-            
+
             await ForceStateHasChanged();
         }
     }
@@ -1826,6 +1907,8 @@ public partial class Home : ComponentBase, IDisposable
         }
     }
     
+    private readonly Dictionary<int, bool> _wasStreaming = new();
+
     private void StartStreamingUpdateTimer()
     {
         if (_streamingUpdateTimer != null) return;
@@ -1843,50 +1926,47 @@ public partial class Home : ComponentBase, IDisposable
     
     private async Task CheckStreamingUpdates()
     {
-        if (isDisposed || isPrerendering || currentChat == null) return;
-        
+        if (isDisposed || isPrerendering) return;
+
         try
         {
-            // Check for and display new notifications
             await CheckAndDisplayNotifications();
-            
-            var isCurrentlyStreaming = BackgroundStreamingService.IsStreamingActive(currentChat.Id);
-            
-            // Only check for database updates when actively streaming
+
+            if (currentChat == null) return;
+
+            var chatId = currentChat.Id;
+            var isCurrentlyStreaming = BackgroundStreamingService.IsStreamingActive(chatId);
+
             if (isCurrentlyStreaming)
             {
                 var lastMessage = messages?.LastOrDefault(m => m.Role == "assistant");
                 if (lastMessage != null)
                 {
                     using var dbContext = await DbContextFactory.CreateDbContextAsync();
-                    // Reload the message from database to get latest content
                     await dbContext.Entry(lastMessage).ReloadAsync();
+
+                    processedMessageContent.Remove(lastMessage.Id);
                     
-                    // Check if content has changed
-                    var newUpdateTime = lastMessage.UpdatedAt;
-                    if (newUpdateTime > _lastMessageUpdate)
+                    if (!isDisposed)
                     {
-                        _lastMessageUpdate = newUpdateTime;
-                        
-                        // Invalidate processed content cache
-                        processedMessageContent.Remove(lastMessage.Id);
-                        
-                        // Update UI
-                        if (!isDisposed)
-                        {
-                            await InvokeAsync(StateHasChanged);
-                        }
-                        
-                        System.Diagnostics.Debug.WriteLine($"Updated streaming content for message {lastMessage.Id} - Length: {lastMessage.Content?.Length ?? 0}, IsStreaming: {isCurrentlyStreaming}");
+                        await InvokeAsync(StateHasChanged);
                     }
                 }
             }
-            // If streaming just completed, force a final UI update to ensure stop button disappears
-            else if (!isCurrentlyStreaming && DateTime.UtcNow - _lastMessageUpdate < TimeSpan.FromSeconds(2))
+
+            if (_wasStreaming.TryGetValue(chatId, out var wasStreaming) && wasStreaming && !isCurrentlyStreaming)
             {
-                System.Diagnostics.Debug.WriteLine($"Forcing final UI update after streaming completion for chat {currentChat.Id}");
+                System.Diagnostics.Debug.WriteLine($"Forcing final UI update after streaming completion for chat {chatId}");
+
+                var lastMessage = messages?.LastOrDefault(m => m.Role == "assistant");
+                if (lastMessage != null)
+                {
+                    using var dbContext = await DbContextFactory.CreateDbContextAsync();
+                    await dbContext.Entry(lastMessage).ReloadAsync();
+
+                    processedMessageContent.Remove(lastMessage.Id);
+                }
                 
-                // Trigger syntax highlighting when streaming completes
                 shouldHighlightCode = true;
                 
                 if (!isDisposed)
@@ -1894,6 +1974,8 @@ public partial class Home : ComponentBase, IDisposable
                     await InvokeAsync(StateHasChanged);
                 }
             }
+
+            _wasStreaming[chatId] = isCurrentlyStreaming;
         }
         catch (Exception ex)
         {
@@ -1996,7 +2078,7 @@ public partial class Home : ComponentBase, IDisposable
         // Start new generation after retrying
         if (!IsCurrentChatGenerating)
         {
-            await StartGeneration();
+            await StartGeneration(userMessage.Content);
         }
     }
 
@@ -2049,7 +2131,7 @@ public partial class Home : ComponentBase, IDisposable
         // Start new generation after editing
         if (!IsCurrentChatGenerating)
         {
-            await StartGeneration();
+            await StartGeneration(userMessage.Content);
         }
     }
 
@@ -2238,7 +2320,11 @@ public partial class Home : ComponentBase, IDisposable
         // Start new generation from the last user message
         if (!IsCurrentChatGenerating)
         {
-            await StartGeneration();
+            var lastUserMessage = messages?.LastOrDefault(m => m.Role == "user");
+            if (lastUserMessage != null)
+            {
+                await StartGeneration(lastUserMessage.Content);
+            }
         }
     }
 

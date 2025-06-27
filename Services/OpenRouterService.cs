@@ -15,7 +15,7 @@ namespace _4U.chat.Services
         public string UniqueId => $"{ModelId}|{DisplayName}";
         public string Description { get; set; } = string.Empty;
         public string Provider { get; set; } = string.Empty;
-        public string ProviderIcon { get; set; } = string.Empty;
+        
         public bool HasVisionSupport { get; set; } = false;
         public bool HasPdfSupport { get; set; } = false;
         public bool HasReasoningSupport { get; set; } = false;

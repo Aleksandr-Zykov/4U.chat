@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Configuration.AddJsonFile("openroutersettings.json", optional: false, reloadOnChange: true);
+builder.Configuration.AddJsonFile("models.json", optional: false, reloadOnChange: true);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -77,6 +77,10 @@ builder.Services.ConfigureApplicationCookie(options =>
 // Add OpenRouter service
 builder.Services.AddHttpClient<OpenRouterService>();
 builder.Services.AddSingleton<OpenRouterService>();
+
+// Add Google Image service
+builder.Services.AddHttpClient<GoogleService>();
+builder.Services.AddSingleton<GoogleService>();
 
 // Add Markdown service
 builder.Services.AddScoped<MarkdownService>();

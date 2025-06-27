@@ -468,6 +468,26 @@ body.light-theme .suggestion-examples li:hover {
 .message-text h5 { font-size: 0.9rem; }
 .message-text h6 { font-size: 0.8rem; }
 
+.message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.message-attachment.image-attachment img {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 0.75rem;
+    object-fit: cover;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.message-attachment.image-attachment img:hover {
+    transform: scale(1.05);
+}
+
 .message-text p {
     margin: 0;
     padding: 0;

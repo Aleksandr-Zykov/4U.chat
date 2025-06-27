@@ -14,6 +14,7 @@ namespace _4U.chat.Models
         // API Keys
         public string? OpenRouterApiKey { get; set; }
         public string? OpenAiApiKey { get; set; }
+        public string? GoogleAiApiKey { get; set; }
         
         // Profile customization - stored as base64 data URI
         public string? ProfilePictureData { get; set; }
