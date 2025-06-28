@@ -70,6 +70,16 @@ public partial class Home : ComponentBase, IDisposable
     // File attachment state
     private List<MessageAttachment> currentAttachments = new();
     private InputFile? fileInputComponent;
+
+    // Image modal state
+    private bool showImageModal = false;
+    private string? selectedImageUrl;
+    private string? selectedImageFileName;
+
+    // PDF modal state
+    private bool showPdfModal = false;
+    private string? selectedPdfUrl;
+    private string? selectedPdfFileName;
     
     // Streaming state polling
     private Timer? _streamingUpdateTimer;
@@ -1189,17 +1199,7 @@ public partial class Home : ComponentBase, IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"Failed to start background streaming for chat {currentChat.Id}");
 
-            assistantMessage.Content = "🚨 **Generation Failed**\n\n" +
-                "Failed to start AI generation. This could be due to:\n\n" +
-                "• Invalid or missing OpenRouter API key\n" +
-                "• Network connectivity issues\n" +
-                "• Selected model is currently unavailable\n\n" +
-                "**What to try:**\n" +
-                "1. Check your OpenRouter API key in Settings\n" +
-                "2. Verify your internet connection\n" +
-                "3. Try selecting a different model\n" +
-                "4. Wait a moment and try again\n\n" +
-                "*If the problem persists, please check the OpenRouter service status.*";
+            // If the problem persists, please check the OpenRouter service status.*";
             assistantMessage.UpdatedAt = DateTime.UtcNow;
 
             using var updateDbContext = await DbContextFactory.CreateDbContextAsync();
@@ -1208,6 +1208,44 @@ public partial class Home : ComponentBase, IDisposable
 
             await ForceStateHasChanged();
         }
+    }
+
+    private void OpenImageModal(MessageAttachment attachment)
+    {
+        if (attachment.Type == AttachmentType.Image)
+        {
+            selectedImageUrl = $"data:{attachment.ContentType};base64,{attachment.Base64Data}";
+            selectedImageFileName = attachment.FileName;
+            showImageModal = true;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseImageModal()
+    {
+        showImageModal = false;
+        selectedImageUrl = null;
+        selectedImageFileName = null;
+        StateHasChanged();
+    }
+
+    private void OpenPdfModal(MessageAttachment attachment)
+    {
+        if (attachment.Type == AttachmentType.PDF)
+        {
+            selectedPdfUrl = $"data:{attachment.ContentType};base64,{attachment.Base64Data}";
+            selectedPdfFileName = attachment.FileName;
+            showPdfModal = true;
+            StateHasChanged();
+        }
+    }
+
+    private void ClosePdfModal()
+    {
+        showPdfModal = false;
+        selectedPdfUrl = null;
+        selectedPdfFileName = null;
+        StateHasChanged();
     }
     
     

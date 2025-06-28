@@ -1,0 +1,47 @@
+@if (Show)
+{
+    <div class="pdf-modal-overlay" @onclick="Close">
+        <div class="pdf-modal-content" @onclick:stopPropagation="true">
+            <div class="pdf-modal-header">
+                <span class="pdf-modal-title">@FileName</span>
+                <div class="pdf-modal-actions">
+                    <a href="@PdfUrl" download="@FileName" class="pdf-modal-action-btn download-btn" title="Download PDF">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                    </a>
+                    <button class="pdf-modal-action-btn close-btn" @onclick="Close" title="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="pdf-modal-body">
+                @if (!string.IsNullOrEmpty(PdfUrl))
+                {
+                    <iframe src="@PdfUrl" frameborder="0" width="100%" height="100%"></iframe>
+                }
+                else
+                {
+                    <p>Loading PDF...</p>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string? PdfUrl { get; set; }
+    [Parameter] public string? FileName { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private async Task Close()
+    {
+        await OnClose.InvokeAsync();
+    }
+}

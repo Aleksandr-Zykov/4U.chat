@@ -878,6 +878,9 @@
 
 <PageTitle>4U.chat</PageTitle>
 
+<ImageModal Show="showImageModal" ImageUrl="@selectedImageUrl" FileName="@selectedImageFileName" OnClose="CloseImageModal" />
+<PdfModal Show="showPdfModal" PdfUrl="@selectedPdfUrl" FileName="@selectedPdfFileName" OnClose="ClosePdfModal" />
+
 <button class="theme-toggle" @onclick="ToggleTheme" title="Toggle theme">
     <svg class="sun-icon" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="5"/>
@@ -1122,13 +1125,13 @@
                                                     {
                                                         @if (attachment.Type == _4U.chat.Models.AttachmentType.Image)
                                                         {
-                                                            <div class="message-attachment image-attachment">
+                                                            <div class="message-attachment image-attachment" @onclick="() => OpenImageModal(attachment)">
                                                                 <img src="data:@(attachment.ContentType);base64,@(attachment.Base64Data)" alt="@attachment.FileName" />
                                                             </div>
                                                         }
                                                         else
                                                         {
-                                                            <div class="message-attachment">
+                                                            <div class="message-attachment" @onclick="() => OpenPdfModal(attachment)">
                                                                 <span class="attachment-icon">@((MarkupString)GetAttachmentIcon(attachment.Type))</span>
                                                                 <span class="attachment-name">@attachment.FileName</span>
                                                                 <span class="attachment-type">PDF</span>

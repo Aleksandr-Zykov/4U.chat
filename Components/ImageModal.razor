@@ -1,0 +1,40 @@
+@if (Show)
+{
+    <div class="image-modal-overlay" @onclick="Close">
+        <div class="image-modal-content" @onclick:stopPropagation="true">
+            <div class="image-modal-header">
+                <span class="image-modal-title">@FileName</span>
+                <div class="image-modal-actions">
+                    <a href="@ImageUrl" download="@FileName" class="image-modal-action-btn download-btn" title="Download image">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                    </a>
+                    <button class="image-modal-action-btn close-btn" @onclick="Close" title="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="image-modal-body">
+                <img src="@ImageUrl" alt="@FileName" />
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string? ImageUrl { get; set; }
+    [Parameter] public string? FileName { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private async Task Close()
+    {
+        await OnClose.InvokeAsync();
+    }
+}

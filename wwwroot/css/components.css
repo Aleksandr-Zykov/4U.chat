@@ -711,19 +711,13 @@ body.light-theme .user-info:hover {
 
 /* Light theme adjustments */
 body.light-theme .attachments-preview {
-    background: 
-        linear-gradient(145deg, 
-            rgba(255, 255, 255, 0.6) 0%, 
-            rgba(255, 255, 255, 0.8) 100%);
-    border-color: rgba(164, 61, 105, 0.1);
+    background: rgba(164, 61, 105, 0.05);
+    border-top: 1px solid rgba(164, 61, 105, 0.1);
 }
 
 body.light-theme .attachment-item {
-    background: 
-        linear-gradient(145deg, 
-            rgba(255, 255, 255, 0.8) 0%, 
-            rgba(255, 255, 255, 0.9) 100%);
-    border-color: rgba(164, 61, 105, 0.15);
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(164, 61, 105, 0.1);
 }
 
 body.light-theme .attachment-item:hover {
@@ -933,3 +927,304 @@ body.light-theme .loading-spinner {
         transform: translateY(0);
     }
 }
+
+/* Image Modal Styles */
+.image-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.3s ease;
+}
+
+.image-modal-content {
+    background: var(--surface-secondary);
+    border-radius: 1rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    width: 90%;
+    max-width: 80vw;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    animation: slideInUp 0.4s ease-out;
+    overflow: hidden;
+}
+
+.image-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+.image-modal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.image-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.image-modal-action-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    border-radius: 0.5rem;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.image-modal-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.image-modal-action-btn.download-btn:hover {
+    color: #4ade80; /* Light green */
+}
+
+.image-modal-action-btn.close-btn:hover {
+    color: #f87171; /* Light red */
+}
+
+.image-modal-action-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.image-modal-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    overflow: auto;
+}
+
+.image-modal-body img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 0.5rem;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Light theme styles for Image Modal */
+body.light-theme .image-modal-overlay {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+body.light-theme .image-modal-content {
+    background: var(--surface-primary);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+body.light-theme .image-modal-header {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.light-theme .image-modal-title {
+    color: var(--text-primary);
+}
+
+body.light-theme .image-modal-action-btn {
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: var(--text-secondary);
+}
+
+body.light-theme .image-modal-action-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    color: var(--text-primary);
+}
+
+body.light-theme .image-modal-action-btn.download-btn:hover {
+    color: #22c55e; /* Green */
+}
+
+body.light-theme .image-modal-action-btn.close-btn:hover {
+    color: #ef4444; /* Red */
+}
+
+/* PDF Modal Styles */
+.pdf-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.3s ease;
+}
+
+.pdf-modal-content {
+    background: var(--surface-secondary);
+    border-radius: 1rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    width: 90%;
+    max-width: 80vw;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    animation: slideInUp 0.4s ease-out;
+    overflow: hidden;
+}
+
+.pdf-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+.pdf-modal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pdf-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pdf-modal-action-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    border-radius: 0.5rem;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.pdf-modal-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.pdf-modal-action-btn.download-btn:hover {
+    color: #4ade80; /* Light green */
+}
+
+.pdf-modal-action-btn.close-btn:hover {
+    color: #f87171; /* Light red */
+}
+
+.pdf-modal-action-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.pdf-modal-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.pdf-modal-body iframe {
+    border: none;
+    width: 100%;
+    height: 100%;
+}
+
+/* Light theme styles for PDF Modal */
+body.light-theme .pdf-modal-overlay {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+body.light-theme .pdf-modal-content {
+    background: var(--surface-primary);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+body.light-theme .pdf-modal-header {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.light-theme .pdf-modal-title {
+    color: var(--text-primary);
+}
+
+body.light-theme .pdf-modal-action-btn {
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: var(--text-secondary);
+}
+
+body.light-theme .pdf-modal-action-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    color: var(--text-primary);
+}
+
+body.light-theme .pdf-modal-action-btn.download-btn:hover {
+    color: #22c55e; /* Green */
+}
+
+body.light-theme .pdf-modal-action-btn.close-btn:hover {
+    color: #ef4444; /* Red */
+}
+
