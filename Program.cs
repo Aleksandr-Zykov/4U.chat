@@ -89,8 +89,11 @@ builder.Services.AddScoped<MarkdownService>();
 builder.Services.AddSingleton<NotificationService>();
 
 // Add Background Streaming Service
+builder.Services.AddSingleton<ProviderIconService>();
 builder.Services.AddSingleton<BackgroundStreamingService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<BackgroundStreamingService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundStreamingService>());
+builder.Services.AddSingleton<BackgroundJobService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobService>());
 
 var app = builder.Build();
 

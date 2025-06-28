@@ -23,8 +23,10 @@ public partial class Home : ComponentBase, IDisposable
     [Inject] private NavigationManager Navigation { get; set; } = default!;
     [Inject] private AuthenticationStateProvider AuthenticationStateProvider { get; set; } = default!;
     [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+    [Inject] private ILogger<Home> _logger { get; set; } = default!;
     [Inject] private MarkdownService MarkdownService { get; set; } = default!;
     [Inject] private BackgroundStreamingService BackgroundStreamingService { get; set; } = default!;
+    [Inject] private BackgroundJobService BackgroundJobService { get; set; } = default!;
     [Inject] private NotificationService NotificationService { get; set; } = default!;
     
     private User? currentUser;
@@ -1075,13 +1077,12 @@ public partial class Home : ComponentBase, IDisposable
         var assistantMessage = new Message
         {
             Role = "assistant",
-            Content = "*Generating image...*",
+            Content = "*Generating images...*",
             ChatId = currentChat.Id,
             CreatedAt = DateTime.UtcNow,
             Model = GetActualModelId(selectedModel)
         };
 
-        // Scope the first context here
         using (var dbContext = await DbContextFactory.CreateDbContextAsync())
         {
             dbContext.Messages.Add(assistantMessage);
@@ -1089,44 +1090,9 @@ public partial class Home : ComponentBase, IDisposable
         }
         
         messages.Add(assistantMessage);
-        await InvokeAsync(StateHasChanged); // Use InvokeAsync for safety
+        await InvokeAsync(StateHasChanged);
 
-        try
-        {
-            var imageBase64 = await GoogleService.GenerateImageAsync(GetActualModelId(selectedModel), userMessageContent, apiKey);
-            
-            var attachment = new MessageAttachment
-            {
-                FileName = $"generated_image_{DateTime.UtcNow:yyyyMMddHHmmss}.png",
-                ContentType = "image/png",
-                Base64Data = imageBase64,
-                FileSize = imageBase64.Length, // Approximate size, good enough for display
-                Type = AttachmentType.Image,
-                UploadedAt = DateTime.UtcNow
-            };
-
-            assistantMessage.Attachments = new List<MessageAttachment> { attachment };
-            assistantMessage.Content = ""; // Clear the "Generating..." message
-        }
-        catch (Exception ex)
-        {
-            var fullErrorMessage = ex.ToString();
-            assistantMessage.Content = $"🚨 **Image Generation Failed**\n\n```\n{fullErrorMessage}\n```";
-            // Force UI update from within the catch block
-            await InvokeAsync(StateHasChanged);
-        }
-        finally
-        {
-            assistantMessage.UpdatedAt = DateTime.UtcNow;
-            // Use a new, clean context in the finally block
-            using (var updateDbContext = await DbContextFactory.CreateDbContextAsync())
-            {
-                updateDbContext.Update(assistantMessage);
-                await updateDbContext.SaveChangesAsync();
-            }
-            // Final UI update
-            await InvokeAsync(StateHasChanged);
-        }
+        await BackgroundJobService.StartImageGenerationJobAsync(assistantMessage.Id, GetActualModelId(selectedModel), userMessageContent, apiKey);
     }
 
     private async Task GenerateTextAsync()
@@ -1991,33 +1957,61 @@ public partial class Home : ComponentBase, IDisposable
                     }
                 }
             }
+            else
+            {
+                // Check for any "Generating images..." messages that might be complete
+                var imageGenMessages = messages?.Where(m => m.Content == "*Generating images...*").ToList();
+                if (imageGenMessages != null)
+                {
+                    foreach (var msg in imageGenMessages)
+                    {
+                        if (!BackgroundJobService.IsJobActive(msg.Id))
+                        {
+                            _logger.LogInformation($"Detected completed image job for message {msg.Id}. Reloading.");
+                            using var dbContext = await DbContextFactory.CreateDbContextAsync();
+                            await dbContext.Entry(msg).ReloadAsync();
+                            processedMessageContent.Remove(msg.Id);
+                            await InvokeAsync(StateHasChanged);
+                        }
+                    }
+                }
+            }
 
             if (_wasStreaming.TryGetValue(chatId, out var wasStreaming) && wasStreaming && !isCurrentlyStreaming)
             {
-                System.Diagnostics.Debug.WriteLine($"Forcing final UI update after streaming completion for chat {chatId}");
+                _logger.LogInformation($"Forcing final UI update after streaming completion for chat {chatId}");
 
                 var lastMessage = messages?.LastOrDefault(m => m.Role == "assistant");
                 if (lastMessage != null)
                 {
                     using var dbContext = await DbContextFactory.CreateDbContextAsync();
                     await dbContext.Entry(lastMessage).ReloadAsync();
-
                     processedMessageContent.Remove(lastMessage.Id);
+                    
+                    if (!isDisposed)
+                    {
+                        await InvokeAsync(StateHasChanged);
+                    }
                 }
                 
-                shouldHighlightCode = true;
-                
-                if (!isDisposed)
+                // Focus textarea after streaming is complete
+                if (!isPrerendering)
                 {
-                    await InvokeAsync(StateHasChanged);
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync("focusTextarea", disposalTokenSource.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"Failed to focus textarea: {ex.Message}");
+                    }
                 }
             }
-
             _wasStreaming[chatId] = isCurrentlyStreaming;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error checking streaming updates: {ex.Message}");
+            _logger.LogError(ex, "Error in CheckStreamingUpdates");
         }
     }
     

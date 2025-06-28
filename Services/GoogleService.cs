@@ -7,31 +7,31 @@ namespace _4U.chat.Services
     public class GoogleImageRequest
     {
         [JsonPropertyName("instances")]
-        public List<Instance> Instances { get; set; }
+        public List<Instance> Instances { get; set; } = new();
 
         [JsonPropertyName("parameters")]
-        public Parameters Parameters { get; set; }
+        public Parameters Parameters { get; set; } = new();
     }
 
     public class Instance
     {
         [JsonPropertyName("prompt")]
-        public string Prompt { get; set; }
+        public string Prompt { get; set; } = string.Empty;
     }
 
     public class Parameters
     {
         [JsonPropertyName("outputMimeType")]
-        public string OutputMimeType { get; set; }
+        public string OutputMimeType { get; set; } = "image/jpeg";
 
         [JsonPropertyName("sampleCount")]
-        public int SampleCount { get; set; }
+        public int SampleCount { get; set; } = 1;
 
         [JsonPropertyName("personGeneration")]
-        public string PersonGeneration { get; set; }
+        public string PersonGeneration { get; set; } = "ALLOW_ADULT";
 
         [JsonPropertyName("aspectRatio")]
-        public string AspectRatio { get; set; }
+        public string AspectRatio { get; set; } = "1:1";
     }
 
     public class GoogleService
@@ -44,7 +44,7 @@ namespace _4U.chat.Services
             _httpClient.BaseAddress = new Uri("https://generativelanguage.googleapis.com/v1beta/");
         }
 
-        public async Task<string> GenerateImageAsync(string model, string prompt, string? apiKey)
+        public async Task<List<string>> GenerateImageAsync(string model, string prompt, string? apiKey)
         {
             if (string.IsNullOrEmpty(apiKey))
             {
@@ -60,7 +60,7 @@ namespace _4U.chat.Services
                 Parameters = new Parameters
                 {
                     OutputMimeType = "image/jpeg",
-                    SampleCount = 1,
+                    SampleCount = 2,
                     PersonGeneration = "ALLOW_ADULT",
                     AspectRatio = "1:1"
                 }
@@ -83,9 +83,18 @@ namespace _4U.chat.Services
             }
 
             var result = JsonSerializer.Deserialize<JsonElement>(responseContent);
-            var imageBase64 = result.GetProperty("predictions")[0].GetProperty("bytesBase64Encoded").GetString() ?? "";
+            var predictions = result.GetProperty("predictions");
+            var imageBase64List = new List<string>();
 
-            return imageBase64;
+            foreach (var prediction in predictions.EnumerateArray())
+            {
+                if (prediction.TryGetProperty("bytesBase64Encoded", out var bytesBase64Encoded))
+                {
+                    imageBase64List.Add(bytesBase64Encoded.GetString() ?? "");
+                }
+            }
+
+            return imageBase64List;
         }
     }
 }
