@@ -39,6 +39,7 @@
     </ul>
   </li>
   <li><strong>Smart Quotes</strong>: Select any text and ask specific questions about it</li>
+  <li><strong>Image Generation</strong>: Create images from text prompts using Google's AI models.</li>
 </ul>
 
 <h3>💻 Developer-Friendly</h3>
@@ -78,6 +79,7 @@
 <h3>API Keys</h3>
 <ul>
   <li><strong>OpenRouter</strong>: Primary API for model access</li>
+  <li><strong>Google AI Studio</strong>: Required for image generation.</li>
   <li><strong>OpenAI</strong>: Template ready for future integration</li>
 </ul>
 
