@@ -2715,7 +2715,6 @@ body.light-theme .katex-inline .katex {
             rgba(255, 255, 255, 0.02) 100%);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.75rem;
-    backdrop-filter: blur(5px);
 }
 
 .message-attachment {
