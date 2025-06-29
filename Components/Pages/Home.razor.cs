@@ -1999,14 +1999,15 @@ public partial class Home : ComponentBase, IDisposable
                 {
                     try
                     {
-                        await JSRuntime.InvokeVoidAsync("focusTextarea", disposalTokenSource.Token);
+                        await JSRuntime.InvokeVoidAsync("focusElementById", "message-input-field");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning($"Failed to focus textarea: {ex.Message}");
+                        _logger.LogError(ex, "Failed to focus textarea after streaming.");
                     }
                 }
             }
+
             _wasStreaming[chatId] = isCurrentlyStreaming;
         }
         catch (Exception ex)
