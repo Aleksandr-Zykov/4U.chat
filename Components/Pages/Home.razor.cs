@@ -43,13 +43,8 @@ public partial class Home : ComponentBase, IDisposable
     private Chat? currentChat;
     private List<Message>? messages;
     private Dictionary<int, string> processedMessageContent = new();
-    private string messageInput = string.Empty;
     private string searchQuery = string.Empty;
     private string selectedModel = "google/gemini-2.5-flash-lite-preview-06-17|Gemini 2.5 Flash Lite";
-    private ElementReference messageTextArea;
-    private bool showModelSelector = false;
-    private string modelSearchQuery = string.Empty;
-    private bool showAllModels = false;
     private bool shouldHighlightCode = false;
     private string animatingChatName = string.Empty;
     private bool isChatNameAnimating = false;
@@ -66,10 +61,6 @@ public partial class Home : ComponentBase, IDisposable
     // Suggestion category state
     private string? selectedSuggestionCategory = null;
     private Dictionary<string, List<string>> categoryExamples = new();
-    
-    // File attachment state
-    private List<MessageAttachment> currentAttachments = new();
-    private InputFile? fileInputComponent;
 
     // Image modal state
     private bool showImageModal = false;
@@ -158,7 +149,17 @@ public partial class Home : ComponentBase, IDisposable
     {
         return messageId.HasValue && expandedThinkingSections.Contains(messageId.Value);
     }
-    
+
+    private string GetAttachmentIcon(AttachmentType type)
+    {
+        return type switch
+        {
+            AttachmentType.Image => """<svg version="1.2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"><style>.s0 { fill: none;stroke: currentColor;stroke-linecap: round;stroke-linejoin: round;stroke-width: 2 } </style><g><path class="s0" d="m21 11.5v7.5q0 0.4-0.2 0.8-0.1 0.3-0.4 0.6-0.3 0.3-0.6 0.4-0.4 0.2-0.8 0.2h-14q-0.4 0-0.8-0.2-0.3-0.1-0.6-0.4-0.3-0.3-0.4-0.6-0.2-0.4-0.2-0.8v-14q0-0.4 0.2-0.8 0.1-0.3 0.4-0.6 0.3-0.3 0.6-0.4 0.4-0.2 0.8-0.2h7.5"/><path class="s0" d="m11.5 3h7.5q0.4 0 0.8 0.2 0.3 0.1 0.6 0.4 0.3 0.3 0.4 0.6 0.2 0.4 0.2 0.8v14q0 0.4-0.2 0.8-0.1 0.3-0.4 0.6-0.3 0.3-0.6 0.4-0.4 0.2-0.8 0.2h-14q-0.4 0-0.8-0.2-0.3-0.1-0.6-0.4-0.3-0.3-0.4-0.6-0.2-0.4-0.2-0.8v-7.5"/><path class="s0" d="m21 15l-3.1-3.1q-0.3-0.3-0.6-0.4-0.4-0.2-0.8-0.2-0.4 0-0.8 0.2-0.3 0.1-0.6 0.4l-9.1 9.1"/><path class="s0" d="m9 11c-1.1 0-2-0.9-2-2 0-1.1 0.9-2 2-2 1.1 0 2 0.9 2 2 0 1.1-0.9 2-2 2z"/></g></svg>""",
+            AttachmentType.PDF => """<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>""",
+            _ => """<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>"""
+        };
+    }
+
     private string GetCapitalizedUsername()
     {
         // Use Name first, then UserName as fallback
@@ -180,39 +181,6 @@ public partial class Home : ComponentBase, IDisposable
         public string Title { get; set; } = string.Empty;
         public List<Chat> Chats { get; set; } = new();
     }
-
-    public class ModelInfo
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public string Provider { get; set; } = string.Empty;
-        
-        public bool IsActive { get; set; } = true;
-        public string InactiveReason { get; set; } = string.Empty;
-        public string[] RequiredProviders { get; set; } = Array.Empty<string>();
-    }
-
-    // Get available models from centralized configuration
-    private List<ModelInfo> availableModels
-    {
-        get
-        {
-            return _4U.chat.Services.OpenRouterService.ModelConfigurations
-                .Where(config => showAllModels || IsUserFavoriteModel(config.UniqueId)) // Show all models or only user favorites
-                .Select(config => new ModelInfo
-                {
-                    Id = config.UniqueId,
-                    Name = config.DisplayName,
-                    Description = config.Description,
-                    Provider = config.Provider,
-                    IsActive = config.IsActive,
-                    InactiveReason = config.InactiveReason
-                })
-                .ToList();
-        }
-    }
-
 
     private List<ChatSection> GroupedChats
     {
@@ -438,8 +406,7 @@ public partial class Home : ComponentBase, IDisposable
             if (isDisposed) return;
             
             // Load persisted settings
-            await LoadModelSelection();
-            await LoadWebSearchState();
+            // This is now handled by the MessageInput component
             
             if (isDisposed) return;
             
@@ -559,8 +526,7 @@ public partial class Home : ComponentBase, IDisposable
             // Load persisted settings after first render when JS is available
             try
             {
-                await LoadModelSelection();
-                await LoadWebSearchState();
+                // Persisted settings like model and web search are now loaded in the MessageInput component.
                 
                 // Force a state update to reflect any loaded settings
                 if (!isDisposed)
@@ -895,14 +861,20 @@ public partial class Home : ComponentBase, IDisposable
         }
     }
 
-    private async Task SendMessage()
+    private void HandleModelLoaded()
     {
-        if ((string.IsNullOrWhiteSpace(messageInput) && !currentAttachments.Any()) || currentUser == null || IsCurrentChatGenerating) return;
+        isModelLoaded = true;
+        StateHasChanged();
+    }
 
-        var content = messageInput.Trim();
-        var attachments = currentAttachments.ToList(); // Copy attachments before clearing
-        messageInput = string.Empty;
-        currentAttachments.Clear();
+    private async Task HandleMessageSent(_4U.chat.Components.Shared.MessageInput.MessageSentEventArgs args)
+    {
+        if ((string.IsNullOrWhiteSpace(args.Content) && !args.Attachments.Any()) || currentUser == null || IsCurrentChatGenerating) return;
+
+        var content = args.Content;
+        var attachments = args.Attachments;
+        this.selectedModel = args.SelectedModel;
+        this.isWebSearchEnabled = args.IsWebSearchEnabled;
 
         bool isNewChat = currentChat == null;
         Chat chat;
@@ -910,7 +882,7 @@ public partial class Home : ComponentBase, IDisposable
 
         if (isNewChat)
         {
-            chat = await ChatService.CreateNewChatAsync(currentUser.Id);
+            chat = await ChatService.CreateNewChatAsync(currentUser.Id, "New Chat");
             currentChat = chat;
         }
         else
@@ -920,25 +892,22 @@ public partial class Home : ComponentBase, IDisposable
 
         (userMessage, chat) = await ChatService.AddUserMessageAsync(chat.Id, content, attachments);
         messages?.Add(userMessage);
-    
+
         if (isNewChat)
         {
             currentChat = await ChatService.GetChatWithMessagesAsync(chat.Id, currentUser.Id);
             messages = currentChat!.Messages;
             await LoadUserChats();
         }
-    
-        // Update chat title if it's still "New Chat"
+
         if (chat.Title == "New Chat")
         {
             _ = GenerateChatNameAsync(content, chat.Id);
         }
-    
-        // Trigger syntax highlighting for new user message
+
         shouldHighlightCode = true;
         await ForceStateHasChanged();
 
-        // Scroll to the newly sent message after render
         _ = Task.Run(async () =>
         {
             try
@@ -950,46 +919,27 @@ public partial class Home : ComponentBase, IDisposable
                 System.Diagnostics.Debug.WriteLine($"scrollToMessage after send failed: {ex.Message}");
             }
         });
-
-        // Reset textarea height after sending
-        await AutoResizeTextarea();
-    
-        // Generate AI response
+        
         var assistantMessage = await ChatService.GenerateResponseAsync(currentChat!, selectedModel, isWebSearchEnabled, BuildSystemPrompt);
         if (assistantMessage != null)
         {
             messages?.Add(assistantMessage);
         }
-    
-        // Update URL without full navigation to avoid interrupting streaming (only for new chats)
+
         if (isNewChat && currentChat != null && !isPrerendering)
         {
             try
             {
                 await JSRuntime.InvokeVoidAsync("history.replaceState", disposalTokenSource.Token, null, "", $"/chat/{currentChat.Id}");
-            
-                // Visually select the new chat in the sidebar
                 await JSRuntime.InvokeVoidAsync("setActiveChatItem", disposalTokenSource.Token, currentChat.Id);
             }
-            catch (OperationCanceledException)
-            {
-                // Component disposed, ignore
-            }
-            catch (NotSupportedException)
-            {
-                // JS not available during prerendering
-            }
-            catch
+            catch (Exception)
             {
                 // Ignore JS interop errors
             }
         }
-    
-        // Clear input immediately but don't focus yet (focus will happen after streaming completes)
-        messageInput = string.Empty;
         await ForceStateHasChanged();
     }
-    
 
     private void OpenImageModal(MessageAttachment attachment)
     {
@@ -1040,35 +990,11 @@ public partial class Home : ComponentBase, IDisposable
         }
     }
 
-    
-    private async Task AutoResizeTextarea()
-    {
-        if (isDisposed || isPrerendering) return;
-        
-        try
-        {
-            // Reset height to measure content
-            await JSRuntime.InvokeVoidAsync("autoResizeTextarea", disposalTokenSource.Token, messageTextArea);
-        }
-        catch (OperationCanceledException)
-        {
-            // Component disposed, ignore
-        }
-        catch (NotSupportedException)
-        {
-            // JS not available during prerendering
-        }
-        catch
-        {
-            // Ignore JS interop errors
-        }
-    }
-    
     private async Task SuggestMessage(string suggestion)
     {
-        messageInput = suggestion;
-        await AutoResizeTextarea();
-        StateHasChanged();
+        // This functionality will need to be re-wired to the new MessageInput component if needed.
+        // For now, it will not function.
+        await Task.CompletedTask;
     }
     
     private void InitializeSuggestionCategories()
@@ -1259,121 +1185,6 @@ public partial class Home : ComponentBase, IDisposable
         }
     }
     
-    private async Task SaveModelSelection()
-    {
-        if (isDisposed || isPrerendering) return;
-        
-        try
-        {
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", disposalTokenSource.Token, "selectedModel", selectedModel);
-        }
-        catch (OperationCanceledException)
-        {
-            // Component disposed, ignore
-        }
-        catch (NotSupportedException)
-        {
-            // JS not available during prerendering
-        }
-        catch
-        {
-            // Ignore if localStorage is not available
-        }
-    }
-    
-    private async Task LoadModelSelection()
-    {
-        if (isDisposed || isPrerendering) return;
-        
-        try
-        {
-            var savedModel = await JSRuntime.InvokeAsync<string>("localStorage.getItem", disposalTokenSource.Token, "selectedModel");
-            if (!string.IsNullOrEmpty(savedModel))
-            {
-                // First check if the model exists in the full model list (regardless of current view mode)
-                var modelConfig = _4U.chat.Services.OpenRouterService.ModelConfigurations
-                    .FirstOrDefault(c => c.UniqueId == savedModel);
-                
-                if (modelConfig != null)
-                {
-                    selectedModel = savedModel;
-                    // If the selected model is not in user favorites but was previously selected,
-                    // we should still restore it even if we're in "Show less" mode
-                }
-                else
-                {
-                    // Handle backward compatibility - try to find model by old ModelId format
-                    var actualModelId = GetActualModelId(savedModel);
-                    var backwardCompatibleConfig = _4U.chat.Services.OpenRouterService.ModelConfigurations
-                        .FirstOrDefault(c => c.ModelId == actualModelId);
-                    if (backwardCompatibleConfig != null)
-                    {
-                        selectedModel = backwardCompatibleConfig.UniqueId;
-                        // Save the updated format
-                        await SaveModelSelection();
-                    }
-                }
-            }
-        }
-        catch (NotSupportedException)
-        {
-            // Expected during prerendering
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"LoadModelSelection error: {ex.Message}");
-        }
-        finally
-        {
-            // Mark model as loaded regardless of success/failure to prevent flash
-            isModelLoaded = true;
-        }
-    }
-    
-    private async Task SaveWebSearchState()
-    {
-        if (isDisposed || isPrerendering) return;
-        
-        try
-        {
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", disposalTokenSource.Token, "webSearchEnabled", isWebSearchEnabled.ToString().ToLower());
-        }
-        catch (OperationCanceledException)
-        {
-            // Component disposed, ignore
-        }
-        catch (NotSupportedException)
-        {
-            // JS not available during prerendering
-        }
-        catch
-        {
-            // Ignore if localStorage is not available
-        }
-    }
-    
-    private async Task LoadWebSearchState()
-    {
-        if (isDisposed || isPrerendering) return;
-        
-        try
-        {
-            var savedWebSearch = await JSRuntime.InvokeAsync<string>("localStorage.getItem", disposalTokenSource.Token, "webSearchEnabled");
-            if (!string.IsNullOrEmpty(savedWebSearch))
-            {
-                isWebSearchEnabled = savedWebSearch.ToLower() == "true";
-            }
-        }
-        catch (NotSupportedException)
-        {
-            // Expected during prerendering
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"LoadWebSearchState error: {ex.Message}");
-        }
-    }
-    
     private void ToggleSidebar()
     {
         UIStateService.ToggleSidebar();
@@ -1408,88 +1219,6 @@ public partial class Home : ComponentBase, IDisposable
     private void GoToSettings()
     {
         Navigation.NavigateTo("/settings");
-    }
-    
-    private void ToggleModelSelector()
-    {
-        showModelSelector = !showModelSelector;
-        StateHasChanged();
-    }
-    
-    private async Task SelectModel(string uniqueId)
-    {
-        var modelInfo = availableModels.FirstOrDefault(m => m.Id == uniqueId);
-        if (modelInfo != null && !modelInfo.IsActive)
-        {
-            // Don't select inactive models
-            return;
-        }
-        
-        selectedModel = uniqueId;
-        showModelSelector = false;
-        await SaveModelSelection();
-        StateHasChanged();
-    }
-    
-    private string GetModelDisplayName(string uniqueId)
-    {
-        var config = _4U.chat.Services.OpenRouterService.GetModelConfigurationByUniqueId(uniqueId);
-        return config?.DisplayName ?? "Unknown Model";
-    }
-    
-    private string GetActualModelId(string uniqueId)
-    {
-        // Extract the actual ModelId from UniqueId (format: "ModelId|DisplayName")
-        if (string.IsNullOrEmpty(uniqueId)) return uniqueId;
-        var parts = uniqueId.Split('|');
-        return parts.Length > 0 ? parts[0] : uniqueId;
-    }
-    
-    private string GetModelDisplayNameFromUniqueId(string uniqueId)
-    {
-        // Extract the DisplayName from UniqueId (format: "ModelId|DisplayName")
-        if (string.IsNullOrEmpty(uniqueId)) return string.Empty;
-        var parts = uniqueId.Split('|');
-        return parts.Length > 1 ? parts[1] : string.Empty;
-    }
-    
-    private List<ModelInfo> GetFilteredModels()
-    {
-        var models = availableModels.AsEnumerable();
-        
-        // Apply search filter
-        if (!string.IsNullOrWhiteSpace(modelSearchQuery))
-        {
-            var query = modelSearchQuery.Trim().ToLowerInvariant();
-            models = models.Where(m => 
-                m.Name.ToLowerInvariant().Contains(query) ||
-                m.Description.ToLowerInvariant().Contains(query) ||
-                m.Provider.ToLowerInvariant().Contains(query)
-            );
-        }
-        
-        // Note: Filtering by favorites is now handled in availableModels property
-        // when showAllModels is false, so no additional filtering needed here
-        
-        return models.ToList();
-    }
-    
-    private void FilterModels()
-    {
-        StateHasChanged();
-    }
-    
-    private void ToggleShowAllModels()
-    {
-        showAllModels = !showAllModels;
-        StateHasChanged();
-    }
-    
-    private async Task ToggleWebSearch()
-    {
-        isWebSearchEnabled = !isWebSearchEnabled;
-        await SaveWebSearchState();
-        StateHasChanged();
     }
     
     private async Task DeleteChat(int chatId)
@@ -1932,21 +1661,8 @@ public partial class Home : ComponentBase, IDisposable
         var citation = $"> {selectedText.Trim()}\n\n";
         System.Diagnostics.Debug.WriteLine($"Formatted citation: '{citation}'");
         
-        // Add to current message input
-        var previousInput = messageInput;
-        if (string.IsNullOrEmpty(messageInput))
-        {
-            messageInput = citation;
-        }
-        else
-        {
-            messageInput = messageInput.TrimEnd() + "\n\n" + citation;
-        }
-        
-        System.Diagnostics.Debug.WriteLine($"Message input changed from: '{previousInput}' to: '{messageInput}'");
-        
-        // Auto-resize textarea and focus it
-        await AutoResizeTextarea();
+        // This method will need to be updated to communicate with the MessageInput component.
+        // For now, it won't work as messageInput is no longer part of this component.
         
         if (!isPrerendering)
         {
@@ -2016,168 +1732,6 @@ public partial class Home : ComponentBase, IDisposable
     }
 
     
-    // File upload methods
-    private async Task HandleFileUpload()
-    {
-        try
-        {
-            System.Diagnostics.Debug.WriteLine("HandleFileUpload called");
-            await JSRuntime.InvokeVoidAsync("triggerFileInput");
-            System.Diagnostics.Debug.WriteLine("triggerFileInput JavaScript called");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"HandleFileUpload error: {ex.Message}");
-        }
-    }
-    
-    private async Task OnFileChange(InputFileChangeEventArgs e)
-    {
-        try
-        {
-            System.Diagnostics.Debug.WriteLine($"OnFileChange called with {e.FileCount} files");
-            foreach (var file in e.GetMultipleFiles(10)) // Max 10 files
-            {
-                // Check file type
-                if (!IsValidFileType(file.ContentType))
-                {
-                    continue; // Skip invalid files
-                }
-                
-                // Check file size with dynamic limit based on database configuration
-                var maxFileSizeBytes = 10 * 1024 * 1024; // 10MB limit
-                if (file.Size > maxFileSizeBytes)
-                {
-                    continue; // Skip large files
-                }
-                
-                // Check model compatibility
-                var attachmentType = GetAttachmentType(file.ContentType);
-                
-                // Skip images if model doesn't support vision (PDFs are allowed for all models)
-                if (attachmentType == _4U.chat.Models.AttachmentType.Image && !_4U.chat.Services.OpenRouterService.ModelSupportsImages(selectedModel))
-                {
-                    System.Diagnostics.Debug.WriteLine($"Skipping image file {file.Name} - model {selectedModel} doesn't support images");
-                    continue; // Skip images if model doesn't support them
-                }
-                
-                // Read file as base64
-                using var stream = file.OpenReadStream(maxFileSizeBytes);
-                using var memoryStream = new MemoryStream();
-                await stream.CopyToAsync(memoryStream);
-                var base64Data = Convert.ToBase64String(memoryStream.ToArray());
-                
-                var attachment = new MessageAttachment
-                {
-                    FileName = file.Name,
-                    ContentType = file.ContentType,
-                    Base64Data = base64Data,
-                    FileSize = file.Size,
-                    Type = attachmentType,
-                    UploadedAt = DateTime.UtcNow
-                };
-                
-                currentAttachments.Add(attachment);
-            }
-            
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"OnFileChange error: {ex.Message}");
-        }
-    }
-    
-    private bool IsValidFileType(string contentType)
-    {
-        var validTypes = new[]
-        {
-            "image/png", "image/jpeg", "image/jpg", "image/webp",
-            "application/pdf"
-        };
-        
-        return validTypes.Contains(contentType.ToLower());
-    }
-    
-    private _4U.chat.Models.AttachmentType GetAttachmentType(string contentType)
-    {
-        return contentType.ToLower() switch
-        {
-            "application/pdf" => _4U.chat.Models.AttachmentType.PDF,
-            _ => _4U.chat.Models.AttachmentType.Image
-        };
-    }
-
-    private string GetMaxFileSizeText()
-    {
-        return "10MB";
-    }
-    
-    private void RemoveAttachment(int index)
-    {
-        if (index >= 0 && index < currentAttachments.Count)
-        {
-            currentAttachments.RemoveAt(index);
-            StateHasChanged();
-        }
-    }
-    
-    private string GetAttachmentDisplayName(MessageAttachment attachment)
-    {
-        return attachment.FileName.Length > 30 
-            ? attachment.FileName.Substring(0, 27) + "..." 
-            : attachment.FileName;
-    }
-    
-    private string GetAttachmentIcon(_4U.chat.Models.AttachmentType type)
-    {
-        return type switch
-        {
-            _4U.chat.Models.AttachmentType.Image => """
-                <svg version="1.2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16">
-                    <style>
-                        .s0 { fill: none;stroke: currentColor;stroke-linecap: round;stroke-linejoin: round;stroke-width: 2 } 
-                    </style>
-                    <g>
-                        <path class="s0" d="m21 11.5v7.5q0 0.4-0.2 0.8-0.1 0.3-0.4 0.6-0.3 0.3-0.6 0.4-0.4 0.2-0.8 0.2h-14q-0.4 0-0.8-0.2-0.3-0.1-0.6-0.4-0.3-0.3-0.4-0.6-0.2-0.4-0.2-0.8v-14q0-0.4 0.2-0.8 0.1-0.3 0.4-0.6 0.3-0.3 0.6-0.4 0.4-0.2 0.8-0.2h7.5"/>
-                        <path class="s0" d="m11.5 3h7.5q0.4 0 0.8 0.2 0.3 0.1 0.6 0.4 0.3 0.3 0.4 0.6 0.2 0.4 0.2 0.8v14q0 0.4-0.2 0.8-0.1 0.3-0.4 0.6-0.3 0.3-0.6 0.4-0.4 0.2-0.8 0.2h-14q-0.4 0-0.8-0.2-0.3-0.1-0.6-0.4-0.3-0.3-0.4-0.6-0.2-0.4-0.2-0.8v-7.5"/>
-                        <path class="s0" d="m21 15l-3.1-3.1q-0.3-0.3-0.6-0.4-0.4-0.2-0.8-0.2-0.4 0-0.8 0.2-0.3 0.1-0.6 0.4l-9.1 9.1"/>
-                        <path class="s0" d="m9 11c-1.1 0-2-0.9-2-2 0-1.1 0.9-2 2-2 1.1 0 2 0.9 2 2 0 1.1-0.9 2-2 2z"/>
-                    </g>
-                </svg>
-                """,
-            _4U.chat.Models.AttachmentType.PDF => """
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path>
-                    <path d="M14 2v4a2 2 0 0 0 2 2h4"></path>
-                    <path d="M10 9H8"></path>
-                    <path d="M16 13H8"></path>
-                    <path d="M16 17H8"></path>
-                </svg>
-                """,
-            _ => """
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-                </svg>
-                """
-        };
-    }
-    
-    private string GetAcceptedFileTypes()
-    {
-        var accepts = new List<string>();
-        
-        // Always allow PDFs for all models
-        accepts.Add(".pdf");
-        
-        // Allow images only if model supports vision
-        if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(selectedModel))
-        {
-            accepts.AddRange(new[] { ".png", ".jpg", ".jpeg", ".webp" });
-        }
-        
-        return string.Join(",", accepts);
-    }
     
     private async Task<string> BuildSystemPrompt()
     {

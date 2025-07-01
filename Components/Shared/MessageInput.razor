@@ -1,0 +1,378 @@
+@using _4U.chat.Models
+@using _4U.chat.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject ProviderIconService ProviderIconService
+
+<div class="input-area">
+    <div class="input-container">
+        <div class="input-wrapper">
+            <div class="input-text-area">
+                <div class="message-input-container">
+                    <textarea @ref="messageTextArea"
+                              id="message-input-field"
+                              class="message-input" 
+                              placeholder="Type your message here..." 
+                              @bind="messageInput"
+                              @bind:event="oninput"
+                              @bind:after="AutoResizeTextarea"
+                              onkeydown="handleMessageInputKeyDown(event)"
+                              disabled="@IsSending"></textarea>
+                </div>
+            </div>
+            
+            <div class="input-controls">
+                <div class="input-controls-left">
+                    <div class="model-selector-container">
+                        <button class="model-selector-button" @onclick="ToggleModelSelector">
+                            <span class="model-name">@(isModelLoaded ? GetModelDisplayName(selectedModel) : "Loading...")</span>
+                            <svg class="dropdown-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="6,9 12,15 18,9"></polyline>
+                            </svg>
+                        </button>
+                        
+                        @if (showModelSelector)
+                        {
+                            <div class="model-selector-overlay" @onclick="() => showModelSelector = false"></div>
+                            <div class="model-selector-popup" @onclick:stopPropagation="true">
+                                <div class="model-search-section">
+                                    <div class="model-search-box">
+                                        <div class="search-icon">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <circle cx="11" cy="11" r="8"/>
+                                                <path d="m21 21-4.35-4.35"/>
+                                            </svg>
+                                        </div>
+                                        <input type="text" class="model-search-input" placeholder="Search models..." @bind="modelSearchQuery" @bind:event="oninput" @onchange="FilterModels" />
+                                    </div>
+                                </div>
+                                
+                                @if (!showAllModels)
+                                {
+                                    <!-- Compact list view for favorites -->
+                                    <div class="model-list">
+                                        @foreach (var model in GetFilteredModels())
+                                        {
+                                            <div class="model-option @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")" 
+                                                 @onclick="async () => await SelectModel(model.Id)" 
+                                                 title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                <div class="model-icon">
+                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
+                                                </div>
+                                                <div class="model-info">
+                                                    <div class="model-title">@model.Name</div>
+                                                    <div class="model-description">@model.Description</div>
+                                                </div>
+                                                <div class="model-capabilities">
+                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                    {
+                                                        <div class="capability-icon vision-icon" title="This model has vision">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye h-4 w-4">
+                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                            </svg>
+                                                        </div>
+                                                    }
+                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                    {
+                                                        <div class="capability-icon reasoning-icon" title="This model supports reasoning">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-brain h-4 w-4">
+                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                            </svg>
+                                                        </div>
+                                                    }
+                                                    @if (IsImageGenerationModel(model.Id))
+                                                    {
+                                                        <div class="capability-icon image-gen-icon" title="This model can generate images">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image-plus h-4 w-4">
+                                                                <path d="M16 5h6"></path>
+                                                                <path d="M19 2v6"></path>
+                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                            </svg>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <!-- Card grid view for all models with Favorites and Others sections -->
+                                    <div class="model-cards-container">
+                                        @{
+                                            var allModels = GetFilteredModels();
+                                            var favoriteModels = allModels.Where(m => IsUserFavoriteModel(m.Id)).ToList();
+                                            var otherModels = allModels.Where(m => !IsUserFavoriteModel(m.Id)).ToList();
+                                        }
+                                        
+                                        @if (favoriteModels.Any())
+                                        {
+                                            <div class="model-section">
+                                                <div class="model-section-header">
+                                                    <svg class="section-star-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                    </svg>
+                                                    Favorites
+                                                </div>
+                                                <div class="model-cards-grid">
+                                                    @foreach (var model in favoriteModels)
+                                                    {
+                                                        <div class="model-card @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")"
+                                                             @onclick="async () => await SelectModel(model.Id)"
+                                                             title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                            
+                                                            <!-- Card Header -->
+                                                            <div class="model-card-header">
+                                                                <div class="model-icon">
+                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
+                                                                </div>
+                                                                <div class="model-card-provider">@model.Provider</div>
+                                                                <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
+                                                                        @onclick:stopPropagation="true"
+                                                                        @onclick="async () => await ToggleFavorite(model.Id)"
+                                                                        title="@(IsUserFavoriteModel(model.Id) ? "Remove from favorites" : "Add to favorites")">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                            
+                                                            <!-- Card Content -->
+                                                            <div class="model-card-content">
+                                                                <div class="model-title">@model.Name</div>
+                                                                <div class="model-description">@model.Description</div>
+                                                                
+                                                                <!-- Capabilities -->
+                                                                <div class="model-card-capabilities">
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                    {
+                                                                        <div class="capability-badge vision-badge" title="Vision Support">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                            </svg>
+                                                                            <span>Vision</span>
+                                                                        </div>
+                                                                    }
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                    {
+                                                                        <div class="capability-badge reasoning-badge" title="Reasoning Support">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                            </svg>
+                                                                            <span>Reasoning</span>
+                                                                        </div>
+                                                                    }
+                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                    {
+                                                                        <div class="capability-badge image-gen-badge" title="Image Generation">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                <path d="M16 5h6"></path>
+                                                                                <path d="M19 2v6"></path>
+                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                            </svg>
+                                                                            <span>Image Gen</span>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                        
+                                        @if (otherModels.Any())
+                                        {
+                                            <div class="model-section">
+                                                <div class="model-section-header">
+                                                    <svg class="section-grid-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <rect x="3" y="3" width="7" height="7"/>
+                                                        <rect x="14" y="3" width="7" height="7"/>
+                                                        <rect x="14" y="14" width="7" height="7"/>
+                                                        <rect x="3" y="14" width="7" height="7"/>
+                                                    </svg>
+                                                    Others
+                                                </div>
+                                                <div class="model-cards-grid">
+                                                    @foreach (var model in otherModels)
+                                                    {
+                                                        <div class="model-card @(selectedModel == model.Id ? "selected" : "") @(!model.IsActive ? "inactive" : "")"
+                                                             @onclick="async () => await SelectModel(model.Id)"
+                                                             title="@(!model.IsActive ? model.InactiveReason : "")">
+                                                            
+                                                            <!-- Card Header -->
+                                                            <div class="model-card-header">
+                                                                <div class="model-icon">
+                                                                    @((MarkupString)ProviderIconService.GetIcon(model.Provider))
+                                                                </div>
+                                                                <div class="model-card-provider">@model.Provider</div>
+                                                                <button class="favorite-button @(IsUserFavoriteModel(model.Id) ? "favorited" : "")"
+                                                                        @onclick:stopPropagation="true"
+                                                                        @onclick="async () => await ToggleFavorite(model.Id)"
+                                                                        title="@(IsUserFavoriteModel(model.Id) ? "Remove from favorites" : "Add to favorites")">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                        <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                            
+                                                            <!-- Card Content -->
+                                                            <div class="model-card-content">
+                                                                <div class="model-title">@model.Name</div>
+                                                                <div class="model-description">@model.Description</div>
+                                                                
+                                                                <!-- Capabilities -->
+                                                                <div class="model-card-capabilities">
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsImages(model.Id))
+                                                                    {
+                                                                        <div class="capability-badge vision-badge" title="Vision Support">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                                                                                <circle cx="12" cy="12" r="3"></circle>
+                                                                            </svg>
+                                                                            <span>Vision</span>
+                                                                        </div>
+                                                                    }
+                                                                    @if (_4U.chat.Services.OpenRouterService.ModelSupportsReasoning(model.Id))
+                                                                    {
+                                                                        <div class="capability-badge reasoning-badge" title="Reasoning Support">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                                                                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                                                                                <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+                                                                                <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+                                                                                <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+                                                                                <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+                                                                                <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+                                                                                <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+                                                                                <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+                                                                            </svg>
+                                                                            <span>Reasoning</span>
+                                                                        </div>
+                                                                    }
+                                                                    @if (IsImageGenerationModel(model.Id))
+                                                                    {
+                                                                        <div class="capability-badge image-gen-badge" title="Image Generation">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                                <path d="M16 5h6"></path>
+                                                                                <path d="M19 2v6"></path>
+                                                                                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"></path>
+                                                                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                                                                                <circle cx="9" cy="9" r="2"></circle>
+                                                                            </svg>
+                                                                            <span>Image Gen</span>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                
+                                <div class="model-filter-section">
+                                    <button class="show-all-button" @onclick="ToggleShowAllModels">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            @if (showAllModels)
+                                            {
+                                                <polyline points="18,15 12,9 6,15"></polyline>
+                                            }
+                                            else
+                                            {
+                                                <polyline points="6,9 12,15 18,9"></polyline>
+                                            }
+                                        </svg>
+                                        <span>Show @(showAllModels ? "less" : "all")</span>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <button class="action-button search-button @(isWebSearchEnabled ? "active" : "")" title="@(isWebSearchEnabled ? "Disable web search" : "Enable web search")" @onclick="async () => await ToggleWebSearch()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="2" y1="12" x2="22" y2="12"/>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                        </svg>
+                        <span>Search</span>
+                    </button>
+                    <button class="action-button attach-button"
+                            title="Attach files"
+                            @onclick="HandleFileUpload">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="input-controls-right">
+                    @if (IsSending)
+                    {
+                        <button class="send-button stop-button" @onclick="HandleStopGeneration" title="Stop generation">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="6" y="6" width="12" height="12" rx="2" ry="2"/>
+                            </svg>
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="send-button" @onclick="HandleSendMessage" disabled="@(string.IsNullOrWhiteSpace(messageInput) && !currentAttachments.Any())" title="Send message">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M6 12l6-6 6 6M12 6v12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                            </svg>
+                        </button>
+                    }
+                </div>
+            </div>
+            
+            <!-- Hidden file input -->
+            <InputFile id="file-input" @ref="fileInputComponent" OnChange="@OnFileChange" multiple accept="@GetAcceptedFileTypes()" style="display: none;" />
+            
+            <!-- Attachments display -->
+            @if (currentAttachments.Any())
+            {
+                <div class="attachments-preview">
+                    @for (int i = 0; i < currentAttachments.Count; i++)
+                    {
+                        var index = i;
+                        var attachment = currentAttachments[i];
+                        <div class="attachment-item">
+                            <span class="attachment-icon">@((MarkupString)GetAttachmentIcon(attachment.Type))</span>
+                            <span class="attachment-name" title="@attachment.FileName">@GetAttachmentDisplayName(attachment)</span>
+                            <button class="attachment-remove" @onclick="() => RemoveAttachment(index)" title="Remove attachment">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M18 6 6 18"></path>
+                                    <path d="M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
