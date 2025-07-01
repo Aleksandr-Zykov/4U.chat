@@ -27,6 +27,7 @@ public partial class Home : ComponentBase, IDisposable
     [Inject] private BackgroundStreamingService BackgroundStreamingService { get; set; } = default!;
     [Inject] private BackgroundJobService BackgroundJobService { get; set; } = default!;
     [Inject] private NotificationService NotificationService { get; set; } = default!;
+    [Inject] protected UIStateService UIStateService { get; set; } = default!;
     [Inject] private ChatService ChatService { get; set; } = default!;
     
     private User? currentUser;
@@ -46,8 +47,6 @@ public partial class Home : ComponentBase, IDisposable
     private string searchQuery = string.Empty;
     private string selectedModel = "google/gemini-2.5-flash-lite-preview-06-17|Gemini 2.5 Flash Lite";
     private ElementReference messageTextArea;
-    private bool isDarkTheme = true; // Default, but will be overridden by script
-    private bool isSidebarCollapsed = false;
     private bool showModelSelector = false;
     private string modelSearchQuery = string.Empty;
     private bool showAllModels = false;
@@ -369,10 +368,12 @@ public partial class Home : ComponentBase, IDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        UIStateService.OnChange += StateHasChangedHandler;
+
         try
         {
             System.Diagnostics.Debug.WriteLine($"OnInitializedAsync - Start (IsDisposed: {isDisposed}, IsPrerendering: {isPrerendering})");
-            
+        
             if (isDisposed) return;
             
             await loadingSemaphore.WaitAsync(disposalTokenSource.Token);
@@ -595,12 +596,12 @@ public partial class Home : ComponentBase, IDisposable
             try
             {
                 var hasLightClass = await JSRuntime.InvokeAsync<bool>("document.body.classList.contains", disposalTokenSource.Token, "light-theme");
-                isDarkTheme = !hasLightClass;
+                UIStateService.SetTheme(!hasLightClass);
             }
             catch
             {
                 // If we can't read DOM, assume dark
-                isDarkTheme = true;
+                UIStateService.SetTheme(true);
             }
         }
         
@@ -1140,9 +1141,9 @@ public partial class Home : ComponentBase, IDisposable
     private async Task ToggleTheme()
     {
         if (isDisposed || isPrerendering) return;
-        
-        isDarkTheme = !isDarkTheme;
-        
+    
+        UIStateService.SetTheme(!UIStateService.IsDarkTheme);
+    
         // Apply theme and save to localStorage atomically to prevent race conditions
         await ApplyThemeAndSave();
     }
@@ -1150,8 +1151,8 @@ public partial class Home : ComponentBase, IDisposable
     private async Task ApplyThemeAndSave()
     {
         if (isDisposed || isPrerendering) return;
-        
-        var themeValue = isDarkTheme ? "dark" : "light";
+    
+        var themeValue = UIStateService.IsDarkTheme ? "dark" : "light";
         
         try
         {
@@ -1159,7 +1160,7 @@ public partial class Home : ComponentBase, IDisposable
             await JSRuntime.InvokeVoidAsync("localStorage.setItem", disposalTokenSource.Token, "theme", themeValue);
             
             // Apply theme to DOM immediately after saving
-            if (isDarkTheme)
+            if (UIStateService.IsDarkTheme)
             {
                 await JSRuntime.InvokeVoidAsync("document.body.classList.remove", disposalTokenSource.Token, "light-theme");
             }
@@ -1181,7 +1182,7 @@ public partial class Home : ComponentBase, IDisposable
         catch (Exception ex)
         {
             // If localStorage save fails, revert the theme state to maintain consistency
-            isDarkTheme = !isDarkTheme;
+            UIStateService.SetTheme(!UIStateService.IsDarkTheme);
             System.Diagnostics.Debug.WriteLine($"Theme toggle failed: {ex.Message}");
         }
     }
@@ -1199,7 +1200,7 @@ public partial class Home : ComponentBase, IDisposable
             var shouldBeLight = savedTheme == "light";
             
             // Update component state to match localStorage
-            isDarkTheme = !shouldBeLight;
+            UIStateService.SetTheme(!shouldBeLight);
             
             // Apply theme to body (for navigation scenarios)
             if (shouldBeLight)
@@ -1230,12 +1231,12 @@ public partial class Home : ComponentBase, IDisposable
     private async Task ApplyTheme()
     {
         if (isDisposed || isPrerendering) return;
-        
-        await JSRuntime.InvokeVoidAsync("console.log", disposalTokenSource.Token, $"ApplyTheme called - isDarkTheme: {isDarkTheme}");
-        
+    
+        await JSRuntime.InvokeVoidAsync("console.log", disposalTokenSource.Token, $"ApplyTheme called - isDarkTheme: {UIStateService.IsDarkTheme}");
+    
         try
         {
-            if (isDarkTheme)
+            if (UIStateService.IsDarkTheme)
             {
                 await JSRuntime.InvokeVoidAsync("document.body.classList.remove", disposalTokenSource.Token, "light-theme");
             }
@@ -1375,7 +1376,7 @@ public partial class Home : ComponentBase, IDisposable
     
     private void ToggleSidebar()
     {
-        isSidebarCollapsed = !isSidebarCollapsed;
+        UIStateService.ToggleSidebar();
     }
     
     private async Task GoToHome()
@@ -2381,19 +2382,29 @@ public partial class Home : ComponentBase, IDisposable
     public void Dispose()
     {
         System.Diagnostics.Debug.WriteLine("Component Disposing");
-        
+    
         isDisposed = true;
-        
+    
         // Cancel all pending operations
         disposalTokenSource?.Cancel();
-        
+    
         // Stop streaming update timer
         StopStreamingUpdateTimer();
-        
+    
+        UIStateService.OnChange -= StateHasChangedHandler;
+
         loadingSemaphore?.Dispose();
         disposalTokenSource?.Dispose();
         citationHandlerReference?.Dispose();
-        
+    
         System.Diagnostics.Debug.WriteLine("Component Disposed");
+    }
+
+    private void StateHasChangedHandler()
+    {
+        if (!isDisposed)
+        {
+            InvokeAsync(StateHasChanged);
+        }
     }
 }

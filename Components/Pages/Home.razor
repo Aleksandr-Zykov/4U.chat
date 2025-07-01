@@ -31,7 +31,7 @@
 </button>
 
 <div class="app-container">
-    <div class="sidebar @(isSidebarCollapsed ? "collapsed" : "")">
+    <div class="sidebar @(UIStateService.IsSidebarCollapsed ? "collapsed" : "")">
         <div class="sidebar-header">
             <div class="logo" @onclick="async () => await GoToHome()">
                 <img src="/logo.svg" alt="4U.chat" class="logo-svg" />
@@ -162,7 +162,7 @@
                        SubMessage="@GetLoadingSubMessage()" />
         
         <button class="sidebar-toggle" @onclick="ToggleSidebar">
-            @if (isSidebarCollapsed)
+            @if (UIStateService.IsSidebarCollapsed)
             {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="9,18 15,12 9,6"/>

@@ -91,6 +91,9 @@ builder.Services.AddScoped<ChatService>();
 // Add Notification Service
 builder.Services.AddSingleton<NotificationService>();
 
+// Add UIState Service
+builder.Services.AddSingleton<UIStateService>();
+
 // Add Background Streaming Service
 builder.Services.AddSingleton<ProviderIconService>();
 builder.Services.AddSingleton<BackgroundStreamingService>();
