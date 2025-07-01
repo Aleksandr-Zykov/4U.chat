@@ -85,6 +85,9 @@ builder.Services.AddSingleton<GoogleService>();
 // Add Markdown service
 builder.Services.AddScoped<MarkdownService>();
 
+// Add Chat Service
+builder.Services.AddScoped<ChatService>();
+
 // Add Notification Service
 builder.Services.AddSingleton<NotificationService>();
 

@@ -19,7 +19,6 @@ public partial class Home : ComponentBase, IDisposable
     [Inject] private IDbContextFactory<ApplicationDbContext> DbContextFactory { get; set; } = default!;
     [Inject] private UserManager<User> UserManager { get; set; } = default!;
     [Inject] private OpenRouterService OpenRouterService { get; set; } = default!;
-    [Inject] private GoogleService GoogleService { get; set; } = default!;
     [Inject] private NavigationManager Navigation { get; set; } = default!;
     [Inject] private AuthenticationStateProvider AuthenticationStateProvider { get; set; } = default!;
     [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
@@ -28,6 +27,7 @@ public partial class Home : ComponentBase, IDisposable
     [Inject] private BackgroundStreamingService BackgroundStreamingService { get; set; } = default!;
     [Inject] private BackgroundJobService BackgroundJobService { get; set; } = default!;
     [Inject] private NotificationService NotificationService { get; set; } = default!;
+    [Inject] private ChatService ChatService { get; set; } = default!;
     
     private User? currentUser;
     private List<Chat>? userChats;
@@ -52,7 +52,6 @@ public partial class Home : ComponentBase, IDisposable
     private string modelSearchQuery = string.Empty;
     private bool showAllModels = false;
     private bool shouldHighlightCode = false;
-    private bool isGeneratingChatName = false;
     private string animatingChatName = string.Empty;
     private bool isChatNameAnimating = false;
     private int? editingMessageId = null;
@@ -177,25 +176,6 @@ public partial class Home : ComponentBase, IDisposable
         return char.ToUpper(name[0]) + name.Substring(1).ToLower();
     }
     
-    private ChatMessage ConvertToOpenRouterMessage(Message message)
-    {
-        if (!message.HasAttachments)
-        {
-            return ChatMessage.CreateTextMessage(message.Role, message.Content);
-        }
-        
-        // Convert MessageAttachment to ChatAttachment
-        var chatAttachments = message.Attachments.Select(a => new ChatAttachment
-        {
-            FileName = a.FileName,
-            ContentType = a.ContentType,
-            Base64Data = a.Base64Data,
-            Type = a.Type == _4U.chat.Models.AttachmentType.Image ? ChatAttachmentType.Image : ChatAttachmentType.PDF
-        }).ToList();
-        
-        return ChatMessage.CreateMessageWithAttachments(message.Role, message.Content, chatAttachments);
-    }
-
     public class ChatSection
     {
         public string Title { get; set; } = string.Empty;
@@ -706,14 +686,8 @@ public partial class Home : ComponentBase, IDisposable
     {
         if (currentUser != null)
         {
-            using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var chats = await dbContext.Chats
-                .Where(c => c.UserId == currentUser.Id)
-                .OrderByDescending(c => c.UpdatedAt)
-                .ToListAsync();
-            
-            userChats = chats;
-            filteredChats = chats.ToList(); // Create a copy
+            userChats = await ChatService.GetUserChatsAsync(currentUser.Id);
+            filteredChats = userChats.ToList(); // Create a copy
             InvalidateGroupedChatsCache(); // Clear cache when data changes
         }
     }
@@ -742,14 +716,11 @@ public partial class Home : ComponentBase, IDisposable
             }
         }
         
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        currentChat = await dbContext.Chats
-            .Include(c => c.Messages)
-            .FirstOrDefaultAsync(c => c.Id == chatId && c.UserId == currentUser!.Id);
+        currentChat = await ChatService.GetChatWithMessagesAsync(chatId, currentUser!.Id);
             
         if (currentChat != null)
         {
-            messages = currentChat.Messages.OrderBy(m => m.CreatedAt).ToList();
+            messages = currentChat.Messages;
             
             // Find the last user message for scroll positioning
             var lastUserMessage = messages.LastOrDefault(m => m.Role == "user");
@@ -931,63 +902,37 @@ public partial class Home : ComponentBase, IDisposable
         var attachments = currentAttachments.ToList(); // Copy attachments before clearing
         messageInput = string.Empty;
         currentAttachments.Clear();
-        
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        
-        // Create chat if none exists (when sending message from homepage)
-        bool isNewChat = false;
-        if (currentChat == null)
-        {
-            var newChat = new Chat
-            {
-                Title = "New Chat",
-                UserId = currentUser.Id,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
 
-            dbContext.Chats.Add(newChat);
-            await dbContext.SaveChangesAsync();
-            
-            // Set up chat state WITHOUT navigation to avoid interrupting message flow
-            currentChat = await dbContext.Chats
-                .Include(c => c.Messages)
-                .FirstOrDefaultAsync(c => c.Id == newChat.Id && c.UserId == currentUser.Id);
-            
-            if (currentChat != null)
-            {
-                messages = currentChat.Messages.OrderBy(m => m.CreatedAt).ToList();
-                processedMessageContent.Clear();
-                shouldHighlightCode = true;
-                isNewChat = true;
-            }
-            
-            // Refresh chat list after creating new chat
+        bool isNewChat = currentChat == null;
+        Chat chat;
+        Message userMessage;
+
+        if (isNewChat)
+        {
+            chat = await ChatService.CreateNewChatAsync(currentUser.Id);
+            currentChat = chat;
+        }
+        else
+        {
+            chat = currentChat!;
+        }
+
+        (userMessage, chat) = await ChatService.AddUserMessageAsync(chat.Id, content, attachments);
+        messages?.Add(userMessage);
+    
+        if (isNewChat)
+        {
+            currentChat = await ChatService.GetChatWithMessagesAsync(chat.Id, currentUser.Id);
+            messages = currentChat!.Messages;
             await LoadUserChats();
         }
-
-        // Add user message
-        var userMessage = new Message
-        {
-            Role = "user",
-            Content = content,
-            ChatId = currentChat.Id,
-            CreatedAt = DateTime.UtcNow,
-            Attachments = attachments
-        };
-
-        dbContext.Messages.Add(userMessage);
-        messages?.Add(userMessage);
-        
+    
         // Update chat title if it's still "New Chat"
-        if (currentChat.Title == "New Chat")
+        if (chat.Title == "New Chat")
         {
-            _ = GenerateChatNameAsync(content, currentChat.Id);
+            _ = GenerateChatNameAsync(content, chat.Id);
         }
-
-        await dbContext.SaveChangesAsync();
-        await LoadUserChats();
-        
+    
         // Trigger syntax highlighting for new user message
         shouldHighlightCode = true;
         await ForceStateHasChanged();
@@ -1007,17 +952,21 @@ public partial class Home : ComponentBase, IDisposable
 
         // Reset textarea height after sending
         await AutoResizeTextarea();
-        
+    
         // Generate AI response
-        await StartGeneration(content);
-        
+        var assistantMessage = await ChatService.GenerateResponseAsync(currentChat!, selectedModel, isWebSearchEnabled, BuildSystemPrompt);
+        if (assistantMessage != null)
+        {
+            messages?.Add(assistantMessage);
+        }
+    
         // Update URL without full navigation to avoid interrupting streaming (only for new chats)
         if (isNewChat && currentChat != null && !isPrerendering)
         {
             try
             {
                 await JSRuntime.InvokeVoidAsync("history.replaceState", disposalTokenSource.Token, null, "", $"/chat/{currentChat.Id}");
-                
+            
                 // Visually select the new chat in the sidebar
                 await JSRuntime.InvokeVoidAsync("setActiveChatItem", disposalTokenSource.Token, currentChat.Id);
             }
@@ -1034,147 +983,12 @@ public partial class Home : ComponentBase, IDisposable
                 // Ignore JS interop errors
             }
         }
-        
+    
         // Clear input immediately but don't focus yet (focus will happen after streaming completes)
         messageInput = string.Empty;
         await ForceStateHasChanged();
     }
     
-    private async Task StartGeneration(string userMessageContent)
-    {
-        if (currentChat == null || messages == null) return;
-
-        var isImageGen = OpenRouterService.IsImageGenerationModel(selectedModel);
-
-        if (isImageGen)
-        {
-            await GenerateImageAsync(userMessageContent);
-        }
-        else
-        {
-            await GenerateTextAsync();
-        }
-    }
-
-    private async Task GenerateImageAsync(string userMessageContent)
-    {
-        if (currentChat == null || messages == null || currentUser == null) return;
-
-        var apiKey = currentUser.GoogleAiApiKey;
-        if (string.IsNullOrEmpty(apiKey))
-        {
-            try
-            {
-                await JSRuntime.InvokeVoidAsync("showErrorNotification", "Google AI Studio API key is missing. Please add it in Settings.", "error");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to show API key error notification: {ex.Message}");
-            }
-            return;
-        }
-
-        var assistantMessage = new Message
-        {
-            Role = "assistant",
-            Content = "*Generating images...*",
-            ChatId = currentChat.Id,
-            CreatedAt = DateTime.UtcNow,
-            Model = GetActualModelId(selectedModel)
-        };
-
-        using (var dbContext = await DbContextFactory.CreateDbContextAsync())
-        {
-            dbContext.Messages.Add(assistantMessage);
-            await dbContext.SaveChangesAsync();
-        }
-        
-        messages.Add(assistantMessage);
-        await InvokeAsync(StateHasChanged);
-
-        await BackgroundJobService.StartImageGenerationJobAsync(assistantMessage.Id, GetActualModelId(selectedModel), userMessageContent, apiKey);
-    }
-
-    private async Task GenerateTextAsync()
-    {
-        if (currentChat == null || messages == null || currentUser == null) return;
-
-        // Force cache refresh to ensure CurrentChatId is synchronized
-        var previousCachedId = cachedCurrentChatId;
-        cachedCurrentChatId = currentChat.Id;
-        if (previousCachedId != currentChat.Id)
-        {
-            System.Diagnostics.Debug.WriteLine($"GenerateTextAsync: Corrected cached chat ID from {previousCachedId} to {currentChat.Id}");
-        }
-
-        var apiKey = currentUser.OpenRouterApiKey;
-        if (string.IsNullOrEmpty(apiKey))
-        {
-            try
-            {
-                await JSRuntime.InvokeVoidAsync("showApiKeyError", disposalTokenSource.Token);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to show API key error notification: {ex.Message}");
-            }
-            return;
-        }
-
-        var assistantMessage = new Message
-        {
-            Role = "assistant",
-            Content = "",
-            ChatId = currentChat.Id,
-            CreatedAt = DateTime.UtcNow,
-            Model = GetActualModelId(selectedModel)
-        };
-
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        dbContext.Messages.Add(assistantMessage);
-        await dbContext.SaveChangesAsync();
-        messages.Add(assistantMessage);
-
-        var chatMessages = messages
-            .Where(m => m.Id != assistantMessage.Id)
-            .OrderBy(m => m.CreatedAt)
-            .Select(m => ConvertToOpenRouterMessage(m))
-            .ToList();
-
-        var systemPrompt = await BuildSystemPrompt();
-
-        var success = await BackgroundStreamingService.StartStreamingAsync(
-            currentChat.Id,
-            assistantMessage.Id,
-            GetActualModelId(selectedModel),
-            GetModelDisplayNameFromUniqueId(selectedModel),
-            apiKey,
-            systemPrompt,
-            chatMessages,
-            isWebSearchEnabled,
-            isWebSearchEnabled ? new WebSearchOptions() : null
-        );
-
-        if (success)
-        {
-            System.Diagnostics.Debug.WriteLine($"Started background streaming for chat {currentChat.Id}, message {assistantMessage.Id}");
-            _lastMessageUpdate = DateTime.UtcNow;
-            await ForceStateHasChanged();
-        }
-        else
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to start background streaming for chat {currentChat.Id}");
-
-            // If the problem persists, please check the OpenRouter service status.*";
-            assistantMessage.UpdatedAt = DateTime.UtcNow;
-
-            using var updateDbContext = await DbContextFactory.CreateDbContextAsync();
-            updateDbContext.Update(assistantMessage);
-            await updateDbContext.SaveChangesAsync();
-
-            await ForceStateHasChanged();
-        }
-    }
 
     private void OpenImageModal(MessageAttachment attachment)
     {
@@ -1680,52 +1494,29 @@ public partial class Home : ComponentBase, IDisposable
     private async Task DeleteChat(int chatId)
     {
         if (currentUser == null) return;
+
+        await ChatService.DeleteChatAsync(chatId, currentUser.Id);
         
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        var chatToDelete = await dbContext.Chats
-            .Include(c => c.Messages)
-            .FirstOrDefaultAsync(c => c.Id == chatId && c.UserId == currentUser.Id);
-            
-        if (chatToDelete != null)
+        // If we deleted the current chat, navigate to home
+        if (CurrentChatId == chatId)
         {
-            // Delete all messages first
-            dbContext.Messages.RemoveRange(chatToDelete.Messages);
-            
-            // Delete the chat
-            dbContext.Chats.Remove(chatToDelete);
-            
-            await dbContext.SaveChangesAsync();
-            
-            // If we deleted the current chat, navigate to home
-            if (CurrentChatId == chatId)
-            {
-                processedMessageContent.Clear();
-                await GoToHome();
-            }
-            
-            // Refresh the chat list
-            await LoadUserChats();
-            StateHasChanged();
+            processedMessageContent.Clear();
+            await GoToHome();
         }
+        
+        // Refresh the chat list
+        await LoadUserChats();
+        StateHasChanged();
     }
 
     private async Task TogglePinChat(int chatId)
     {
         if (currentUser == null) return;
         
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        var chatToPin = await dbContext.Chats
-            .FirstOrDefaultAsync(c => c.Id == chatId && c.UserId == currentUser.Id);
+        var success = await ChatService.TogglePinChatAsync(chatId, currentUser.Id);
             
-        if (chatToPin != null)
+        if (success)
         {
-            chatToPin.IsPinned = !chatToPin.IsPinned;
-            
-            // Don't update UpdatedAt when changing pin status
-            // This preserves the original timestamp for correct time-based placement
-            
-            await dbContext.SaveChangesAsync();
-            
             // Refresh the chat list
             await LoadUserChats();
             
@@ -1757,54 +1548,17 @@ public partial class Home : ComponentBase, IDisposable
     {
         try
         {
-            isGeneratingChatName = true;
-            System.Diagnostics.Debug.WriteLine($"Generating chat name for: {userMessage}");
-            
-            // Get user's API key - required for OpenRouter access
-            var apiKey = currentUser?.OpenRouterApiKey;
-            if (string.IsNullOrEmpty(apiKey))
+            var newName = await ChatService.GenerateChatNameAsync(userMessage, currentUser?.OpenRouterApiKey);
+
+            var chat = userChats?.FirstOrDefault(c => c.Id == chatId);
+            if (chat != null && !string.IsNullOrEmpty(newName))
             {
-                return; // Skip auto-naming if no API key
-            }
-            var result = await OpenRouterService.GenerateChatNameAsync(userMessage, apiKey);
-            System.Diagnostics.Debug.WriteLine($"API result: {result?.Name ?? "NULL"}");
-            
-            using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var chat = await dbContext.Chats.FindAsync(chatId);
-            if (chat != null && chat.Title == "New Chat" && !string.IsNullOrEmpty(result?.Name))
-            {
-                System.Diagnostics.Debug.WriteLine($"Animating name: {result.Name}");
-                await AnimateChatName(result.Name, chat);
-            }
-            else if (chat != null && chat.Title == "New Chat")
-            {
-                System.Diagnostics.Debug.WriteLine("Using fallback - API result was empty");
-                // Fallback if result is empty
-                chat.Title = userMessage.Length > 50 ? userMessage.Substring(0, 50) + "..." : userMessage;
-                chat.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                await LoadUserChats();
-                StateHasChanged();
+                await AnimateChatName(newName, chat);
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"API call failed: {ex.Message}");
-            // Fallback to original logic if API fails
-            using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var chat = await dbContext.Chats.FindAsync(chatId);
-            if (chat != null && chat.Title == "New Chat")
-            {
-                chat.Title = userMessage.Length > 50 ? userMessage.Substring(0, 50) + "..." : userMessage;
-                chat.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                await LoadUserChats();
-                StateHasChanged();
-            }
-        }
-        finally
-        {
-            isGeneratingChatName = false;
+            _logger.LogError(ex, "Failed to generate chat name for chat {ChatId}", chatId);
         }
     }
 
@@ -1815,19 +1569,12 @@ public partial class Home : ComponentBase, IDisposable
         // If prerendering, just update directly without animation
         if (isPrerendering)
         {
-            using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var chatToUpdate = await dbContext.Chats.FindAsync(chat.Id);
-            if (chatToUpdate != null)
+            await ChatService.UpdateChatTitleAsync(chat.Id, newName);
+            
+            // Also update the local currentChat object if it's the same chat
+            if (currentChat?.Id == chat.Id)
             {
-                chatToUpdate.Title = newName;
-                chatToUpdate.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                
-                // Also update the local currentChat object if it's the same chat
-                if (currentChat?.Id == chat.Id)
-                {
-                    currentChat.Title = newName;
-                }
+                currentChat.Title = newName;
             }
             await LoadUserChats();
             return;
@@ -1854,19 +1601,12 @@ public partial class Home : ComponentBase, IDisposable
             if (isDisposed) return;
             
             // Animation complete - now update the database
-            using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var chatToUpdate = await dbContext.Chats.FindAsync(chat.Id);
-            if (chatToUpdate != null)
+            await ChatService.UpdateChatTitleAsync(chat.Id, newName);
+            
+            // Also update the local currentChat object if it's the same chat
+            if (currentChat?.Id == chat.Id)
             {
-                chatToUpdate.Title = newName;
-                chatToUpdate.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                
-                // Also update the local currentChat object if it's the same chat
-                if (currentChat?.Id == chat.Id)
-                {
-                    currentChat.Title = newName;
-                }
+                currentChat.Title = newName;
             }
             await LoadUserChats();
             
@@ -1887,19 +1627,12 @@ public partial class Home : ComponentBase, IDisposable
         catch (NotSupportedException)
         {
             // JS not available, fallback to direct update
-            using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var chatToUpdate = await dbContext.Chats.FindAsync(chat.Id);
-            if (chatToUpdate != null)
+            await ChatService.UpdateChatTitleAsync(chat.Id, newName);
+
+            // Also update the local currentChat object if it's the same chat
+            if (currentChat?.Id == chat.Id)
             {
-                chatToUpdate.Title = newName;
-                chatToUpdate.UpdatedAt = DateTime.UtcNow;
-                await dbContext.SaveChangesAsync();
-                
-                // Also update the local currentChat object if it's the same chat
-                if (currentChat?.Id == chat.Id)
-                {
-                    currentChat.Title = newName;
-                }
+                currentChat.Title = newName;
             }
             await LoadUserChats();
             
@@ -1943,18 +1676,11 @@ public partial class Home : ComponentBase, IDisposable
 
             if (isCurrentlyStreaming)
             {
-                var lastMessage = messages?.LastOrDefault(m => m.Role == "assistant");
-                if (lastMessage != null)
+                // Simply trigger a UI update to reflect the latest streaming state
+                // from BackgroundStreamingService. No need to hit the database here.
+                if (!isDisposed)
                 {
-                    using var dbContext = await DbContextFactory.CreateDbContextAsync();
-                    await dbContext.Entry(lastMessage).ReloadAsync();
-
-                    processedMessageContent.Remove(lastMessage.Id);
-                    
-                    if (!isDisposed)
-                    {
-                        await InvokeAsync(StateHasChanged);
-                    }
+                    await InvokeAsync(StateHasChanged);
                 }
             }
             else
@@ -2080,28 +1806,17 @@ public partial class Home : ComponentBase, IDisposable
     {
         if (currentChat == null || IsCurrentChatGenerating) return;
 
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        // Delete any messages that came after this user message
-        var messagesToDelete = await dbContext.Messages
-            .Where(m => m.ChatId == currentChat.Id && m.CreatedAt > userMessage.CreatedAt)
-            .ToListAsync();
+        await ChatService.RetryMessageAsync(currentChat.Id, userMessage.Id);
 
-        if (messagesToDelete.Any())
+        // Update local messages list
+        if (messages != null)
         {
-            dbContext.Messages.RemoveRange(messagesToDelete);
-            
-            // Update local messages list
-            if (messages != null)
+            var messagesToRemove = messages.Where(m => m.CreatedAt > userMessage.CreatedAt).ToList();
+            foreach (var msg in messagesToRemove)
             {
-                var messagesToRemove = messages.Where(m => m.CreatedAt > userMessage.CreatedAt).ToList();
-                foreach (var msg in messagesToRemove)
-                {
-                    messages.Remove(msg);
-                }
+                messages.Remove(msg);
             }
         }
-
-        await dbContext.SaveChangesAsync();
         
         // Clear processed content cache and update UI
         processedMessageContent.Clear();
@@ -2111,7 +1826,7 @@ public partial class Home : ComponentBase, IDisposable
         // Start new generation after retrying
         if (!IsCurrentChatGenerating)
         {
-            await StartGeneration(userMessage.Content);
+            await ChatService.GenerateResponseAsync(currentChat, selectedModel, isWebSearchEnabled, BuildSystemPrompt);
         }
     }
 
@@ -2126,31 +1841,19 @@ public partial class Home : ComponentBase, IDisposable
     {
         if (currentChat == null || string.IsNullOrWhiteSpace(editingMessageContent)) return;
 
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        // Update the message content
-        userMessage.Content = editingMessageContent.Trim();
-        
-        // Delete any messages that came after this one
-        var messagesToDelete = await dbContext.Messages
-            .Where(m => m.ChatId == currentChat.Id && m.CreatedAt > userMessage.CreatedAt)
-            .ToListAsync();
+        var newContent = editingMessageContent.Trim();
+        await ChatService.SaveEditedMessageAsync(userMessage.Id, newContent);
 
-        if (messagesToDelete.Any())
+        // Update local message and remove subsequent messages
+        userMessage.Content = newContent;
+        if (messages != null)
         {
-            dbContext.Messages.RemoveRange(messagesToDelete);
-            
-            // Update local messages list
-            if (messages != null)
+            var messagesToRemove = messages.Where(m => m.CreatedAt > userMessage.CreatedAt).ToList();
+            foreach (var msg in messagesToRemove)
             {
-                var messagesToRemove = messages.Where(m => m.CreatedAt > userMessage.CreatedAt).ToList();
-                foreach (var msg in messagesToRemove)
-                {
-                    messages.Remove(msg);
-                }
+                messages.Remove(msg);
             }
         }
-
-        await dbContext.SaveChangesAsync();
 
         // Exit edit mode
         editingMessageId = null;
@@ -2164,7 +1867,7 @@ public partial class Home : ComponentBase, IDisposable
         // Start new generation after editing
         if (!IsCurrentChatGenerating)
         {
-            await StartGeneration(userMessage.Content);
+            await ChatService.GenerateResponseAsync(currentChat, selectedModel, isWebSearchEnabled, BuildSystemPrompt);
         }
     }
 
@@ -2265,42 +1968,7 @@ public partial class Home : ComponentBase, IDisposable
     {
         if (currentChat == null || currentUser == null || IsCurrentChatGenerating) return;
 
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        
-        // Create a new branched chat with the same title
-        var branchedChat = new Chat
-        {
-            Title = currentChat.Title,
-            UserId = currentUser.Id,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            IsBranched = true,
-            OriginalChatId = currentChat.Id
-        };
-
-        dbContext.Chats.Add(branchedChat);
-        await dbContext.SaveChangesAsync();
-
-        // Copy all messages up to and including the selected assistant message
-        var messagesToCopy = await dbContext.Messages
-            .Where(m => m.ChatId == currentChat.Id && m.CreatedAt <= assistantMessage.CreatedAt)
-            .OrderBy(m => m.CreatedAt)
-            .ToListAsync();
-
-        foreach (var originalMessage in messagesToCopy)
-        {
-            var copiedMessage = new Message
-            {
-                Role = originalMessage.Role,
-                Content = originalMessage.Content,
-                ChatId = branchedChat.Id,
-                CreatedAt = originalMessage.CreatedAt,
-                Model = originalMessage.Model
-            };
-            dbContext.Messages.Add(copiedMessage);
-        }
-
-        await dbContext.SaveChangesAsync();
+        var branchedChat = await ChatService.BranchOffChatAsync(currentChat.Id, assistantMessage.Id, currentUser.Id);
         
         // Clear processed content cache and invalidate chat ID cache
         processedMessageContent.Clear();
@@ -2322,28 +1990,17 @@ public partial class Home : ComponentBase, IDisposable
     {
         if (currentChat == null || IsCurrentChatGenerating) return;
 
-        using var dbContext = await DbContextFactory.CreateDbContextAsync();
-        // Delete this assistant message and any messages that came after it
-        var messagesToDelete = await dbContext.Messages
-            .Where(m => m.ChatId == currentChat.Id && m.CreatedAt >= assistantMessage.CreatedAt)
-            .ToListAsync();
+        await ChatService.RetryAssistantMessageAsync(assistantMessage.Id);
 
-        if (messagesToDelete.Any())
+        // Update local messages list
+        if (messages != null)
         {
-            dbContext.Messages.RemoveRange(messagesToDelete);
-            
-            // Update local messages list
-            if (messages != null)
+            var messagesToRemove = messages.Where(m => m.CreatedAt >= assistantMessage.CreatedAt).ToList();
+            foreach (var msg in messagesToRemove)
             {
-                var messagesToRemove = messages.Where(m => m.CreatedAt >= assistantMessage.CreatedAt).ToList();
-                foreach (var msg in messagesToRemove)
-                {
-                    messages.Remove(msg);
-                }
+                messages.Remove(msg);
             }
         }
-
-        await dbContext.SaveChangesAsync();
         
         // Clear processed content cache and update UI
         processedMessageContent.Clear();
@@ -2353,11 +2010,7 @@ public partial class Home : ComponentBase, IDisposable
         // Start new generation from the last user message
         if (!IsCurrentChatGenerating)
         {
-            var lastUserMessage = messages?.LastOrDefault(m => m.Role == "user");
-            if (lastUserMessage != null)
-            {
-                await StartGeneration(lastUserMessage.Content);
-            }
+            await ChatService.GenerateResponseAsync(currentChat, selectedModel, isWebSearchEnabled, BuildSystemPrompt);
         }
     }
 
@@ -2686,52 +2339,6 @@ public partial class Home : ComponentBase, IDisposable
         {
             BackgroundStreamingService.StopStreaming(CurrentChatId.Value);
             System.Diagnostics.Debug.WriteLine($"Stopped streaming for chat {CurrentChatId.Value}");
-        }
-    }
-    
-    private async Task ContinueGenerationFromPartial(Message assistantMessage)
-    {
-        if (currentUser == null || currentChat == null || IsCurrentChatGenerating) 
-        {
-            System.Diagnostics.Debug.WriteLine("Cannot continue generation - user, chat, or already generating");
-            return;
-        }
-
-        System.Diagnostics.Debug.WriteLine($"Continuing generation from partial message {assistantMessage.Id}");
-
-        // Prepare chat messages for the API (excluding the current assistant message)
-        var chatMessages = messages!
-            .Where(m => m.Id != assistantMessage.Id)
-            .OrderBy(m => m.CreatedAt)
-            .Select(m => ConvertToOpenRouterMessage(m))
-            .ToList();
-        
-        // Get user API key and system prompt
-        var apiKey = currentUser.OpenRouterApiKey;
-        var systemPrompt = await BuildSystemPrompt();
-        
-        // Start background streaming from where we left off
-        var success = await BackgroundStreamingService.StartStreamingAsync(
-            currentChat.Id,
-            assistantMessage.Id,
-            GetActualModelId(selectedModel),
-            GetModelDisplayNameFromUniqueId(selectedModel),
-            apiKey!,
-            systemPrompt,
-            chatMessages,
-            isWebSearchEnabled,
-            isWebSearchEnabled ? new WebSearchOptions() : null
-        );
-
-        if (success)
-        {
-            System.Diagnostics.Debug.WriteLine($"Successfully continued generation for message {assistantMessage.Id}");
-            _lastMessageUpdate = DateTime.UtcNow;
-            await InvokeAsync(StateHasChanged);
-        }
-        else
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to continue generation for message {assistantMessage.Id}");
         }
     }
     
