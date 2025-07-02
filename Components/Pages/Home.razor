@@ -3,6 +3,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using _4U.chat.Services
 @using _4U.chat.Components.Shared
+@using _4U.chat.Components.Layout
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject ProviderIconService ProviderIconService
@@ -32,128 +33,17 @@
 </button>
 
 <div class="app-container">
-    <div class="sidebar @(UIStateService.IsSidebarCollapsed ? "collapsed" : "")">
-        <div class="sidebar-header">
-            <div class="logo" @onclick="async () => await GoToHome()">
-                <img src="/logo.svg" alt="4U.chat" class="logo-svg" />
-            </div>
-        </div>
-        
-        <button class="new-chat-btn" @onclick="CreateNewChat">
-            New Chat
-        </button>
-        
-        <div class="search-box">
-            <div class="search-icon search-icon-sidebar">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="8"/>
-                    <path d="m21 21-4.35-4.35"/>
-                </svg>
-            </div>
-            <input type="text" class="search-input" placeholder="Search your threads..." value="@searchQuery" @oninput="OnSearchInput" />
-        </div>
-        
-        <div class="separator"></div>
-        
-        <div class="chat-list">
-            @if (!isInitializing)
-            {
-                @if (GroupedChats != null && GroupedChats.Any())
-            {
-                @foreach (var chatSection in GroupedChats)
-                {
-                    <div class="chat-section" @key="chatSection.Title">
-                        <div class="chat-section-header">
-                            @chatSection.Title
-                        </div>
-                        @foreach (var chat in chatSection.Chats)
-                        {
-                            <div class="chat-item" data-chat-id="@chat.Id" @onclick="() => SelectChat(chat.Id, shouldNavigate: true)" @key="chat.Id">
-                                <div class="chat-title">
-                                    @if (chat.IsBranched && chat.OriginalChatId.HasValue)
-                                    {
-                                        <svg class="branch-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
-                                             @onclick:stopPropagation="true" 
-                                             @onclick="() => SelectChat(chat.OriginalChatId.Value, shouldNavigate: true)"
-                                             title="Go to original chat">
-                                            <path d="M6.02,5.78m0,15.31V4.55m0,0v-1.91m0,3.14v-1.23m0,1.23c0,1.61,1.21,3.11,3.2,3.94l4.58,1.92c1.98,.83,3.2,2.32,3.2,3.94v3.84"></path>
-                                            <path d="M20.53,17.59l-3.41,3.66-3.66-3.41"></path>
-                                        </svg>
-                                    }
-                                    @if (isChatNameAnimating && chat.Id == currentChat?.Id && !string.IsNullOrEmpty(animatingChatName))
-                                    {
-                                        <span class="chat-name-animating" id="chat-name-@chat.Id">@animatingChatName</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="chat-name-static">@(chat.Title ?? "New Chat")</span>
-                                    }
-                                </div>
-                                @if (IsChatGenerating(chat.Id))
-                                {
-                                    <div class="chat-generating-indicator">
-                                        <svg class="generating-spinner" viewBox="0 0 24 24">
-                                            <circle cx="12" cy="12" r="10" fill="none" stroke-width="2" stroke-dasharray="60" stroke-dashoffset="20" />
-                                        </svg>
-                                    </div>
-                                }
-                                <div class="chat-actions">
-                                    <button class="chat-action-btn pin-btn" title="@(chat.IsPinned ? "Unpin Thread" : "Pin Thread")" @onclick:stopPropagation="true" @onclick="() => TogglePinChat(chat.Id)">
-                                        @if (chat.IsPinned)
-                                        {
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M12 17v5"/>
-                                                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 7.89 17H16.1a2 2 0 0 0 1.78-2.55l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 0-1-1H10a1 1 0 0 0-1 1z"/>
-                                                <line x1="2" y1="2" x2="22" y2="22"/>
-                                            </svg>
-                                        }
-                                        else
-                                        {
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M12 17v5"/>
-                                                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 7.89 17H16.1a2 2 0 0 0 1.78-2.55l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 0-1-1H10a1 1 0 0 0-1 1z"/>
-                                            </svg>
-                                        }
-                                    </button>
-                                    <button class="chat-action-btn delete-btn" title="Delete Thread" @onclick:stopPropagation="true" @onclick="() => DeleteChat(chat.Id)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M3 6h18"/>
-                                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-                                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-                                            <line x1="10" y1="11" x2="10" y2="17"/>
-                                            <line x1="14" y1="11" x2="14" y2="17"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                }
-            }
-            }
-        </div>
-        
-        <div class="user-info" @onclick="GoToSettings" style="cursor: pointer;">
-            <div class="user-avatar-sidebar">
-                @if (!string.IsNullOrEmpty(currentUser?.ProfilePictureData))
-                {
-                    <img src="@currentUser.ProfilePictureData" alt="Profile Picture" class="avatar-img" />
-                }
-                else
-                {
-                    @(currentUser?.Name?.Substring(0, 1).ToUpper())
-                }
-            </div>
-            <div class="user-details">
-                <div class="user-name">@(currentUser?.Name)</div>
-            </div>
-            <form method="post" action="/Auth/Logout" style="margin: 0;">
-                <button type="submit" style="background: none; border: none; color: #888888; cursor: pointer; font-size: 0.75rem;">
-                    Logout
-                </button>
-            </form>
-        </div>
-    </div>
+    <ChatSidebar @ref="chatSidebar"
+                 CurrentUser="currentUser"
+                 CurrentChat="currentChat"
+                 IsChatNameAnimating="isChatNameAnimating"
+                 AnimatingChatName="animatingChatName"
+                 OnChatSelected="(chatId) => SelectChat(chatId, shouldNavigate: true)"
+                 OnNewChatClicked="CreateNewChat"
+                 OnHomeClicked="GoToHome"
+                 OnSettingsClicked="GoToSettings"
+                 OnChatDeleted="DeleteChat"
+                 OnPinChatToggled="TogglePinChat" />
     
     <div class="main-content">
         <!-- Loading Screen for initial app load or chat loading -->

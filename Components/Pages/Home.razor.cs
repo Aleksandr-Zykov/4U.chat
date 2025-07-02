@@ -31,9 +31,7 @@ public partial class Home : ComponentBase, IDisposable
     [Inject] private ChatService ChatService { get; set; } = default!;
     
     private User? currentUser;
-    private List<Chat>? userChats;
-    private List<Chat>? filteredChats;
-    private List<ChatSection>? cachedGroupedChats;
+    private _4U.chat.Components.Layout.ChatSidebar? chatSidebar;
     private int? cachedCurrentChatId;
     private bool isInitializing = true;
     private bool isDisposed = false;
@@ -43,7 +41,6 @@ public partial class Home : ComponentBase, IDisposable
     private Chat? currentChat;
     private List<Message>? messages;
     private Dictionary<int, string> processedMessageContent = new();
-    private string searchQuery = string.Empty;
     private string selectedModel = "google/gemini-2.5-flash-lite-preview-06-17|Gemini 2.5 Flash Lite";
     private bool shouldHighlightCode = false;
     private string animatingChatName = string.Empty;
@@ -176,115 +173,6 @@ public partial class Home : ComponentBase, IDisposable
         return char.ToUpper(name[0]) + name.Substring(1).ToLower();
     }
     
-    public class ChatSection
-    {
-        public string Title { get; set; } = string.Empty;
-        public List<Chat> Chats { get; set; } = new();
-    }
-
-    private List<ChatSection> GroupedChats
-    {
-        get
-        {
-            // Return cached result if available
-            if (cachedGroupedChats != null)
-            {
-                return cachedGroupedChats;
-            }
-
-            // Calculate and cache the result
-            cachedGroupedChats = CalculateGroupedChats();
-            return cachedGroupedChats;
-        }
-    }
-    
-    private List<ChatSection> GetGroupedChats()
-    {
-        return GroupedChats;
-    }
-    
-    private List<ChatSection> CalculateGroupedChats()
-    {
-        try
-        {
-            if (isInitializing || filteredChats == null || !filteredChats.Any())
-                return new List<ChatSection>();
-                
-            // Create a copy to avoid collection modification exceptions
-            var chatsCopy = filteredChats.ToList();
-
-        var now = DateTime.UtcNow;
-        var today = now.Date;
-        var yesterday = today.AddDays(-1);
-        var lastWeek = today.AddDays(-7);
-        var lastMonth = today.AddDays(-30);
-
-        var sections = new List<ChatSection>();
-
-        // Pinned chats (always first)
-        var pinnedChats = chatsCopy.Where(c => c.IsPinned).OrderByDescending(c => c.UpdatedAt).ToList();
-        if (pinnedChats.Any())
-        {
-            sections.Add(new ChatSection { Title = "Pinned", Chats = pinnedChats });
-        }
-
-        // Non-pinned chats grouped by time
-        var unpinnedChats = chatsCopy.Where(c => !c.IsPinned).ToList();
-
-        // Today
-        var todayChats = unpinnedChats.Where(c => c.UpdatedAt.Date == today).OrderByDescending(c => c.UpdatedAt).ToList();
-        if (todayChats.Any())
-        {
-            sections.Add(new ChatSection { Title = "Today", Chats = todayChats });
-        }
-
-        // Yesterday
-        var yesterdayChats = unpinnedChats.Where(c => c.UpdatedAt.Date == yesterday).OrderByDescending(c => c.UpdatedAt).ToList();
-        if (yesterdayChats.Any())
-        {
-            sections.Add(new ChatSection { Title = "Yesterday", Chats = yesterdayChats });
-        }
-
-        // Last 7 days (excluding today and yesterday)
-        var lastWeekChats = unpinnedChats.Where(c => c.UpdatedAt.Date < yesterday && c.UpdatedAt.Date >= lastWeek).OrderByDescending(c => c.UpdatedAt).ToList();
-        if (lastWeekChats.Any())
-        {
-            sections.Add(new ChatSection { Title = "Last 7 days", Chats = lastWeekChats });
-        }
-
-        // Last Month (excluding last 7 days)
-        var lastMonthChats = unpinnedChats.Where(c => c.UpdatedAt.Date < lastWeek && c.UpdatedAt.Date >= lastMonth).OrderByDescending(c => c.UpdatedAt).ToList();
-        if (lastMonthChats.Any())
-        {
-            sections.Add(new ChatSection { Title = "Last Month", Chats = lastMonthChats });
-        }
-
-        // Older
-        var olderChats = unpinnedChats.Where(c => c.UpdatedAt.Date < lastMonth).OrderByDescending(c => c.UpdatedAt).ToList();
-        if (olderChats.Any())
-        {
-            sections.Add(new ChatSection { Title = "Older", Chats = olderChats });
-        }
-
-            return sections;
-        }
-        catch (InvalidOperationException ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"CalculateGroupedChats InvalidOperationException: {ex.Message}");
-            return new List<ChatSection>();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"CalculateGroupedChats Exception: {ex.Message}");
-            return new List<ChatSection>();
-        }
-    }
-    
-    private void InvalidateGroupedChatsCache()
-    {
-        cachedGroupedChats = null;
-    }
-    
     
     private async Task ThrottledStateHasChanged()
     {
@@ -370,8 +258,6 @@ public partial class Home : ComponentBase, IDisposable
                 InitializeSuggestionCategories();
                 
                 if (isDisposed) return;
-                
-                await LoadUserChats();
                 
                 if (isDisposed) return;
                 
@@ -649,15 +535,6 @@ public partial class Home : ComponentBase, IDisposable
         
     }
 
-    private async Task LoadUserChats()
-    {
-        if (currentUser != null)
-        {
-            userChats = await ChatService.GetUserChatsAsync(currentUser.Id);
-            filteredChats = userChats.ToList(); // Create a copy
-            InvalidateGroupedChatsCache(); // Clear cache when data changes
-        }
-    }
 
     private async Task SelectChat(int chatId, bool shouldNavigate = true)
     {
@@ -803,64 +680,6 @@ public partial class Home : ComponentBase, IDisposable
         Navigation.NavigateTo("/");
     }
 
-    private async Task OnSearchInput(ChangeEventArgs e)
-    {
-        searchQuery = e.Value?.ToString() ?? string.Empty;
-        await FilterChats();
-    }
-
-    private async Task FilterChats()
-    {
-        if (isInitializing || isDisposed || userChats == null) return;
-        
-        try
-        {
-            if (string.IsNullOrWhiteSpace(searchQuery))
-            {
-                filteredChats = userChats.ToList(); // Create a copy
-            }
-            else
-            {
-                var query = searchQuery.Trim();
-                filteredChats = userChats.Where(c => 
-                    c.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                ).ToList();
-            }
-            
-            InvalidateGroupedChatsCache(); // Clear cache when filtered data changes
-            
-            // Trigger UI update to refresh the grouped sections
-            if (!isDisposed)
-            {
-                await ForceStateHasChanged();
-                
-                // Restore chat selection after re-render
-                if (CurrentChatId.HasValue && !isPrerendering)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        await Task.Delay(50); // Small delay to ensure DOM is updated
-                        if (!isDisposed)
-                        {
-                            try
-                            {
-                                await JSRuntime.InvokeVoidAsync("setActiveChatItem", disposalTokenSource.Token, CurrentChatId.Value);
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"Failed to restore chat selection after filter: {ex.Message}");
-                            }
-                        }
-                    });
-                }
-            }
-        }
-        catch (InvalidOperationException ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"FilterChats InvalidOperationException: {ex.Message}");
-        }
-    }
-
     private void HandleModelLoaded()
     {
         isModelLoaded = true;
@@ -897,12 +716,12 @@ public partial class Home : ComponentBase, IDisposable
         {
             currentChat = await ChatService.GetChatWithMessagesAsync(chat.Id, currentUser.Id);
             messages = currentChat!.Messages;
-            await LoadUserChats();
+            if (chatSidebar is not null) await chatSidebar.RefreshChats();
         }
 
         if (chat.Title == "New Chat")
         {
-            _ = GenerateChatNameAsync(content, chat.Id);
+            _ = GenerateChatNameAsync(content, chat);
         }
 
         shouldHighlightCode = true;
@@ -1235,7 +1054,7 @@ public partial class Home : ComponentBase, IDisposable
         }
         
         // Refresh the chat list
-        await LoadUserChats();
+        if (chatSidebar is not null) await chatSidebar.RefreshChats();
         StateHasChanged();
     }
 
@@ -1248,7 +1067,7 @@ public partial class Home : ComponentBase, IDisposable
         if (success)
         {
             // Refresh the chat list
-            await LoadUserChats();
+            if (chatSidebar is not null) await chatSidebar.RefreshChats();
             
             // Restore selection if this was the current chat
             if (currentChat?.Id == chatId)
@@ -1274,13 +1093,12 @@ public partial class Home : ComponentBase, IDisposable
         }
     }
 
-    private async Task GenerateChatNameAsync(string userMessage, int chatId)
+    private async Task GenerateChatNameAsync(string userMessage, Chat chat)
     {
         try
         {
             var newName = await ChatService.GenerateChatNameAsync(userMessage, currentUser?.OpenRouterApiKey);
 
-            var chat = userChats?.FirstOrDefault(c => c.Id == chatId);
             if (chat != null && !string.IsNullOrEmpty(newName))
             {
                 await AnimateChatName(newName, chat);
@@ -1288,7 +1106,7 @@ public partial class Home : ComponentBase, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to generate chat name for chat {ChatId}", chatId);
+            _logger.LogError(ex, "Failed to generate chat name for chat {ChatId}", chat.Id);
         }
     }
 
@@ -1306,7 +1124,7 @@ public partial class Home : ComponentBase, IDisposable
             {
                 currentChat.Title = newName;
             }
-            await LoadUserChats();
+            if (chatSidebar is not null) await chatSidebar.RefreshChats();
             return;
         }
         
@@ -1338,7 +1156,7 @@ public partial class Home : ComponentBase, IDisposable
             {
                 currentChat.Title = newName;
             }
-            await LoadUserChats();
+            if (chatSidebar is not null) await chatSidebar.RefreshChats();
             
             if (!isDisposed)
             {
@@ -1364,7 +1182,7 @@ public partial class Home : ComponentBase, IDisposable
             {
                 currentChat.Title = newName;
             }
-            await LoadUserChats();
+            if (chatSidebar is not null) await chatSidebar.RefreshChats();
             
             if (!isDisposed)
             {
@@ -1692,7 +1510,7 @@ public partial class Home : ComponentBase, IDisposable
         cachedCurrentChatId = null; // Reset cache tracking before navigation
         
         // Refresh chat list and navigate to the new branched chat
-        await LoadUserChats();
+        if (chatSidebar is not null) await chatSidebar.RefreshChats();
         
         // Force a state update to ensure the sidebar renders with the new chat
         StateHasChanged();
